@@ -19,7 +19,7 @@ DEFAULT_ENCHANTMENTS = {
 }
 
 # Function to create database and tables
-def create_database():
+def create_database_items():
     # Connect to SQLite database (creates file if not exists)
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
@@ -77,7 +77,7 @@ def create_database():
     conn.close()
 
 # Function to parse HTML and store data in database
-def parse_and_store(html_file):
+def parse_and_store_items(html_file):
     # Read HTML file
     with open(html_file, "r", encoding="utf-8") as file:
         soup = BeautifulSoup(file, "html.parser")
@@ -159,9 +159,9 @@ def parse_and_store(html_file):
 # Main execution
 if __name__ == "__main__":
     # Create database and tables
-    create_database()
+    create_database_items()
     
     # Parse HTML and store item data
-    parse_and_store("./var/item_data.html")
+    parse_and_store_items("./var/item_data.html")
     
     print("Data parsed and stored successfully.")
