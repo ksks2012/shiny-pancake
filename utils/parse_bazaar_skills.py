@@ -193,10 +193,10 @@ def parse_and_store_skills(html_file):
                 logging.info(f"Added rarity for skill {name}: {rarity}")
             
             # Insert effects
-            for effect in effects:
-                cursor.execute("INSERT INTO skill_effects (skill_id, effect) VALUES (?, ?)", 
-                             (skill_id, effect))
-                logging.info(f"Added effect for skill {name}: {effect}")
+            # for effect in effects:
+            #     cursor.execute("INSERT INTO skill_effects (skill_id, effect) VALUES (?, ?)", 
+            #                  (skill_id, effect))
+            #     logging.info(f"Added effect for skill {name}: {effect}")
             
             # No types in skill.html
             logging.info(f"No types specified for skill {name} in mobalytics file")
