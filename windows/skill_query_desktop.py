@@ -9,15 +9,26 @@ import os
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Function to get distinct rarities from database
+def get_rarities():
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT rarity FROM skill_rarities WHERE rarity IS NOT NULL ORDER BY rarity")
+    rarities = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return [""] + rarities  # Include empty option for "All"
+
 # Function to query skills with filters
 def query_skills(name="", rarity="", types=None, effect_keyword="", sort_by="name", sort_order="ASC"):
     conn = sqlite3.connect("bazaar.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    # Base query
+    # Base query with DISTINCT in GROUP_CONCAT to avoid duplicates
     query = """
-        SELECT DISTINCT s.id, s.name, sr.rarity, GROUP_CONCAT(se.effect) as effects, GROUP_CONCAT(st.type) as types
+        SELECT DISTINCT s.id, s.name, sr.rarity,
+               GROUP_CONCAT(DISTINCT se.effect) as effects,
+               GROUP_CONCAT(DISTINCT st.type) as types
         FROM skills s
         LEFT JOIN skill_rarities sr ON s.id = sr.skill_id
         LEFT JOIN skill_effects se ON s.id = se.skill_id
@@ -60,15 +71,16 @@ def query_skills(name="", rarity="", types=None, effect_keyword="", sort_by="nam
             soup = BeautifulSoup(effects, "html.parser")
             effects = soup.get_text(strip=True)
         
-        # Split comma-separated types
-        types = row["types"].split(",") if row["types"] else []
+        # Split and deduplicate effects and types
+        effects_list = list(set(effects.split(","))) if effects else []
+        types_list = list(set(row["types"].split(","))) if row["types"] else []
         
         skills.append({
             "id": row["id"],
             "name": row["name"],
             "rarity": row["rarity"],
-            "effects": effects,
-            "types": types
+            "effects": ", ".join(effects_list),
+            "types": types_list
         })
     
     conn.close()
@@ -115,7 +127,7 @@ class SkillQueryApp:
         # Rarity dropdown
         ttk.Label(filter_frame, text="Rarity:").grid(row=2, column=0, padx=5, sticky="w")
         self.rarity_var = tk.StringVar()
-        rarities = ["", "Bronze", "Silver", "Gold", "Diamond"]
+        rarities = get_rarities()  # Dynamically fetch rarities
         ttk.Combobox(filter_frame, textvariable=self.rarity_var, values=rarities, state="readonly").grid(row=2, column=1, padx=5, sticky="ew")
         
         # Types checkboxes
@@ -150,7 +162,6 @@ class SkillQueryApp:
         ttk.Button(main_frame, text="Export to CSV", command=self.export_results).grid(row=2, column=0, pady=5)
         
         # Results table
-        # TODO: icon
         columns = ("name", "effects", "rarity", "types")
         self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
         self.tree.heading("name", text="Name", command=lambda: self.sort_column("name"))
@@ -212,7 +223,7 @@ class SkillQueryApp:
         filename = "skill_results.csv"
         with open(filename, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Name", "Icon URL", "Effects", "Rarity", "Types"])
+            writer.writerow(["Name", "Effects", "Rarity", "Types"])
             for skill in self.current_skills:
                 writer.writerow([
                     skill["name"],
