@@ -32,12 +32,11 @@ def create_database_skills():
         )
     """)
     
-    # Create skill_rarities table with is_starting column
+    # Create skill_rarities table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS skill_rarities (
             skill_id INTEGER,
             rarity TEXT NOT NULL,
-            is_starting BOOLEAN DEFAULT 0,
             FOREIGN KEY (skill_id) REFERENCES skills(id)
         )
     """)
@@ -90,7 +89,6 @@ def parse_and_store_skills(html_file):
     if is_wiki_file:
         # Parse skill_w_types.html (wiki format)
         skill_table = soup.find("table", class_="wikitable sortable jquery-tablesorter")
-        print("skill_table", skill_table)
         if not skill_table:
             logging.error("No skill table found in ./var/skill_w_types.html")
             return
@@ -131,15 +129,12 @@ def parse_and_store_skills(html_file):
             if effect:
                 cursor.execute("INSERT INTO skill_effects (skill_id, effect) VALUES (?, ?)", (skill_id, effect))
                 logging.info(f"Added effect for skill {name}: {effect}")
-            
-            # Insert starting tier
-            if starting_tier:
-                cursor.execute("INSERT OR IGNORE INTO skill_rarities (skill_id, rarity, is_starting) VALUES (?, ?, ?)", 
-                             (skill_id, starting_tier, 1))
-                logging.info(f"Added starting rarity for skill {name}: {starting_tier}")
-            
+                        
             # Insert types
             for skill_type in types:
+                skill_type = skill_type.replace("Reference", "").strip()
+                skill_type = skill_type.replace("SLow", "slow").strip()
+                print("skill_type", skill_type)
                 cursor.execute("INSERT OR IGNORE INTO skill_types (skill_id, type) VALUES (?, ?)", 
                              (skill_id, skill_type))
                 logging.info(f"Added type for skill {name}: {skill_type}")
@@ -176,10 +171,21 @@ def parse_and_store_skills(html_file):
             effects = [li.get_text(strip=True) for li in effects_list.find_all("li")] if effects_list else []
             
             # Insert skill into database
-            cursor.execute("INSERT OR IGNORE INTO skills (name, icon_url) VALUES (?, ?)", (name, icon_url))
             cursor.execute("SELECT id FROM skills WHERE name = ?", (name,))
-            skill_id = cursor.fetchone()[0]
-            
+            try:
+                skill_id = cursor.fetchone()[0]
+            except TypeError:
+                cursor.execute("INSERT OR IGNORE INTO skills (name, icon_url) VALUES (?, ?)", (name, icon_url))
+                cursor.execute("SELECT id FROM skills WHERE name = ?", (name,))
+                skill_id = cursor.fetchone()[0]
+
+                # Insert effects
+                for effect in effects:
+                    cursor.execute("INSERT INTO skill_effects (skill_id, effect) VALUES (?, ?)", 
+                                (skill_id, effect))
+                    logging.info(f"Added effect for skill {name}: {effect}")
+
+
             # Insert heroes
             for hero in heroes:
                 cursor.execute("INSERT OR IGNORE INTO skill_heroes (skill_id, hero) VALUES (?, ?)", 
@@ -188,15 +194,9 @@ def parse_and_store_skills(html_file):
             
             # Insert rarities
             for rarity in rarities:
-                cursor.execute("INSERT OR IGNORE INTO skill_rarities (skill_id, rarity, is_starting) VALUES (?, ?, ?)", 
-                             (skill_id, rarity, 0))
+                cursor.execute("INSERT OR IGNORE INTO skill_rarities (skill_id, rarity) VALUES (?, ?)", 
+                             (skill_id, rarity))
                 logging.info(f"Added rarity for skill {name}: {rarity}")
-            
-            # Insert effects
-            # for effect in effects:
-            #     cursor.execute("INSERT INTO skill_effects (skill_id, effect) VALUES (?, ?)", 
-            #                  (skill_id, effect))
-            #     logging.info(f"Added effect for skill {name}: {effect}")
             
             # No types in skill.html
             logging.info(f"No types specified for skill {name} in mobalytics file")
@@ -211,11 +211,13 @@ if __name__ == "__main__":
     create_database_skills()
     
     # Parse HTML and store data
-    html_files = ["./var/skill_data.html", "./var/skill_w_types.html"]
+    html_files = ["./var/skill_w_types.html", "./var/skill_data.html"]
     for html_file in html_files:
         if os.path.exists(html_file):
             parse_and_store_skills(html_file)
         else:
             logging.warning(f"File {html_file} not found, skipping.")
     
+    # TODO: Mark moster skills as hero in skill_heroes table
+
     print("Skill data parsed and stored successfully.")

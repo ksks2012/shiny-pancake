@@ -17,7 +17,7 @@ if __name__ == "__main__":
     print("Data parsed and stored successfully.")
 
     # Parse HTML and store data
-    html_files = ["./var/skill_data.html", "./var/skill_w_types.html"]
+    html_files = ["./var/skill_w_types.html", "./var/skill_data.html"]
     for html_file in html_files:
         if os.path.exists(html_file):
             parse_and_store_skills(html_file)
