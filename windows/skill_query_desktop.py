@@ -9,14 +9,19 @@ import os
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Function to get distinct rarities from database
+# Define custom rarity order
+RARITY_ORDER = ["Bronze", "Silver", "Gold", "Diamond", "Legendary"]
+
+# Function to get distinct rarities from database, sorted by custom order
 def get_rarities():
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT rarity FROM skill_rarities WHERE rarity IS NOT NULL ORDER BY rarity")
+    cursor.execute("SELECT DISTINCT rarity FROM skill_rarities WHERE rarity IS NOT NULL")
     rarities = [row[0] for row in cursor.fetchall()]
     conn.close()
-    return [""] + rarities  # Include empty option for "All"
+    # Sort rarities by custom order, only including those present
+    sorted_rarities = sorted([r for r in rarities if r in RARITY_ORDER], key=lambda x: RARITY_ORDER.index(x))
+    return [""] + sorted_rarities  # Include empty option for "All"
 
 # Function to get distinct heroes from database
 def get_heroes():
@@ -42,7 +47,7 @@ def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=N
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    # Base query with DISTINCT in GROUP_CONCAT to avoid duplicates
+    # Base query with DISTINCT in GROUP_CONCAT and custom rarity order
     query = """
         SELECT DISTINCT s.id, s.name,
                GROUP_CONCAT(DISTINCT sr.rarity) as rarities,
@@ -74,7 +79,6 @@ def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=N
     if heroes:
         query += " AND s.id IN (SELECT skill_id FROM skill_heroes WHERE hero IN ({}))".format(",".join("?" * len(heroes)))
         params.extend(heroes)
-
     
     # Group by to avoid duplicates
     query += " GROUP BY s.id"
@@ -83,7 +87,20 @@ def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=N
     if sort_by == "name":
         query += f" ORDER BY s.name {sort_order}"
     elif sort_by == "rarity":
-        query += f" ORDER BY GROUP_CONCAT(DISTINCT sr.rarity) {sort_order}"
+        query += f"""
+            ORDER BY (
+                MIN(
+                    CASE sr.rarity
+                        WHEN 'Bronze' THEN 1
+                        WHEN 'Silver' THEN 2
+                        WHEN 'Gold' THEN 3
+                        WHEN 'Diamond' THEN 4
+                        WHEN 'Legendary' THEN 5
+                        ELSE 6
+                    END
+                )
+            ) {sort_order}
+        """
     elif sort_by == "types":
         query += f" ORDER BY GROUP_CONCAT(DISTINCT st.type) {sort_order}"
     
@@ -103,7 +120,10 @@ def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=N
         # Split and deduplicate effects, types, rarities, and heroes
         effects_list = list(set(effects.split(","))) if effects else []
         types_list = list(set(row["types"].split(","))) if row["types"] else []
-        rarities_list = list(set(row["rarities"].split(","))) if row["rarities"] else []
+        rarities_list = sorted(
+            [r for r in row["rarities"].split(",") if r] if row["rarities"] else [],
+            key=lambda x: RARITY_ORDER.index(x) if x in RARITY_ORDER else len(RARITY_ORDER)
+        )
         heroes_list = list(set(row["heroes"].split(","))) if row["heroes"] else []
         
         skills.append({
