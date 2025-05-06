@@ -11,6 +11,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Define custom rarity order
 RARITY_ORDER = ["Bronze", "Silver", "Gold", "Diamond", "Legendary"]
+SIZE_ORDER = ["Small", "Medium", "Large"]
 
 # Skill-related database functions
 def get_rarities():
@@ -63,7 +64,6 @@ def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=N
     """
     params = []
     
-    # Add filters
     if name:
         query += " AND s.name LIKE ?"
         params.append(f"%{name}%")
@@ -77,13 +77,11 @@ def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=N
         query += " AND se.effect LIKE ?"
         params.append(f"%{effect_keyword}%")
     if heroes:
-        query += " AND s.id IN (SELECT skill_id FROM skill_heroes WHERE hero IN ({}))".format(",".join("?" * len(heroes)))
+        query += " AND s.id IN (SELECT skill_id FROM skill_heroes WHERE hero IN ({}) OR hero = "")".format(",".join("?" * len(heroes)))
         params.extend(heroes)
     
-    # Group by to avoid duplicates
     query += " GROUP BY s.id"
     
-    # Add sorting
     if sort_by == "name":
         query += f" ORDER BY s.name {sort_order}"
     elif sort_by == "rarity":
@@ -104,14 +102,11 @@ def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=N
     elif sort_by == "types":
         query += f" ORDER BY GROUP_CONCAT(DISTINCT st.type) {sort_order}"
     
-    # Execute query
     cursor.execute(query, params)
     results = cursor.fetchall()
     
-    # Process results
     skills = []
     for row in results:
-        # Clean HTML from effects
         effects = row["effects"] or ""
         if effects:
             soup = BeautifulSoup(effects, "html.parser")
@@ -164,22 +159,33 @@ def get_item_heroes():
     conn.close()
     return [""] + heroes
 
-def query_items(name="", rarities=None, types=None, effect_keyword="", heroes=None, sort_by="name", sort_order="ASC"):
+def get_item_sizes():
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT size FROM items WHERE size IS NOT NULL ORDER BY size")
+    sizes = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    sorted_size = sorted([s for s in sizes if s in SIZE_ORDER], key=lambda x: SIZE_ORDER.index(x))
+    return [""] + sorted_size
+
+def query_items(name="", rarities=None, types=None, effect_keyword="", heroes=None, size="", sort_by="name", sort_order="ASC"):
     conn = sqlite3.connect("bazaar.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     query = """
-        SELECT DISTINCT i.id, i.name,
+        SELECT DISTINCT i.id, i.name, i.size,
                GROUP_CONCAT(DISTINCT ir.rarity) as rarities,
                GROUP_CONCAT(DISTINCT ie.effect) as effects,
                GROUP_CONCAT(DISTINCT it.type) as types,
-               GROUP_CONCAT(DISTINCT ih.hero) as heroes
+               GROUP_CONCAT(DISTINCT ih.hero) as heroes,
+               GROUP_CONCAT(DISTINCT e.enchantment_name || ': ' || e.enchantment_effect) as enchantments
         FROM items i
         LEFT JOIN item_rarities ir ON i.id = ir.item_id
         LEFT JOIN item_effects ie ON i.id = ie.item_id
         LEFT JOIN item_types it ON i.id = it.item_id
         LEFT JOIN item_heroes ih ON i.id = ih.item_id
+        LEFT JOIN enchantments e ON i.id = e.item_id
         WHERE 1=1
     """
     params = []
@@ -197,8 +203,11 @@ def query_items(name="", rarities=None, types=None, effect_keyword="", heroes=No
         query += " AND ie.effect LIKE ?"
         params.append(f"%{effect_keyword}%")
     if heroes:
-        query += " AND i.id IN (SELECT item_id FROM item_heroes WHERE hero IN ({}))".format(",".join("?" * len(heroes)))
+        query += " AND (i.id IN (SELECT item_id FROM item_heroes WHERE hero IN ({})) OR i.id NOT IN (SELECT item_id FROM item_heroes))".format(",".join("?" * len(heroes)))
         params.extend(heroes)
+    if size:
+        query += " AND i.size = ?"
+        params.append(size)
     
     query += " GROUP BY i.id"
     
@@ -239,14 +248,17 @@ def query_items(name="", rarities=None, types=None, effect_keyword="", heroes=No
             key=lambda x: RARITY_ORDER.index(x) if x in RARITY_ORDER else len(RARITY_ORDER)
         )
         heroes_list = list(set(row["heroes"].split(","))) if row["heroes"] else []
+        enchantments_list = list(set(row["enchantments"].split(","))) if row["enchantments"] else []
         
         items.append({
             "id": row["id"],
             "name": row["name"],
+            "size": row["size"],
             "rarities": ", ".join(rarities_list),
             "effects": ", ".join(effects_list),
             "types": types_list,
-            "heroes": heroes_list
+            "heroes": heroes_list,
+            "enchantments": ", ".join(enchantments_list)
         })
     
     conn.close()
@@ -254,12 +266,13 @@ def query_items(name="", rarities=None, types=None, effect_keyword="", heroes=No
 
 # Reusable query tab class
 class QueryTab:
-    def __init__(self, parent, query_func, get_rarities_func, get_types_func, get_heroes_func, entity_name):
+    def __init__(self, parent, query_func, get_rarities_func, get_types_func, get_heroes_func, entity_name, get_sizes_func=None):
         self.parent = parent
         self.query_func = query_func
         self.get_rarities_func = get_rarities_func
         self.get_types_func = get_types_func
         self.get_heroes_func = get_heroes_func
+        self.get_sizes_func = get_sizes_func
         self.entity_name = entity_name
         
         self.sort_by = "name"
@@ -274,36 +287,38 @@ class QueryTab:
         self.parent.columnconfigure(0, weight=1)
         self.parent.rowconfigure(0, weight=1)
         
-        # Filter frame
         filter_frame = ttk.LabelFrame(main_frame, text="Filters", padding="5")
         filter_frame.grid(row=0, column=0, sticky="ew", pady=5)
         
-        # Name search
         ttk.Label(filter_frame, text="Name:").grid(row=0, column=0, padx=5, sticky="w")
         self.name_var = tk.StringVar()
         ttk.Entry(filter_frame, textvariable=self.name_var).grid(row=0, column=1, padx=5, sticky="ew")
         
-        # Effect keyword
         ttk.Label(filter_frame, text="Effect Keyword:").grid(row=1, column=0, padx=5, sticky="w")
         self.effect_var = tk.StringVar()
         ttk.Entry(filter_frame, textvariable=self.effect_var).grid(row=1, column=1, padx=5, sticky="ew")
         
-        # Rarity dropdown
         ttk.Label(filter_frame, text="Rarity:").grid(row=2, column=0, padx=5, sticky="w")
         self.rarity_var = tk.StringVar()
         rarities = self.get_rarities_func()
         ttk.Combobox(filter_frame, textvariable=self.rarity_var, values=rarities, state="readonly").grid(row=2, column=1, padx=5, sticky="ew")
         
-        # Hero dropdown
         ttk.Label(filter_frame, text="Hero:").grid(row=3, column=0, padx=5, sticky="w")
         self.hero_var = tk.StringVar()
         heroes = self.get_heroes_func()
         ttk.Combobox(filter_frame, textvariable=self.hero_var, values=heroes, state="readonly").grid(row=3, column=1, padx=5, sticky="ew")
         
-        # Types checkboxes
-        ttk.Label(filter_frame, text="Types:").grid(row=4, column=0, padx=5, sticky="nw")
+        row_offset = 4
+        if self.get_sizes_func:
+            ttk.Label(filter_frame, text="Size:").grid(row=4, column=0, padx=5, sticky="w")
+            self.size_var = tk.StringVar()
+            sizes = self.get_sizes_func()
+            ttk.Combobox(filter_frame, textvariable=self.size_var, values=sizes, state="readonly").grid(row=4, column=1, padx=5, sticky="ew")
+            row_offset += 1
+        
+        ttk.Label(filter_frame, text="Types:").grid(row=row_offset, column=0, padx=5, sticky="nw")
         types_frame = ttk.Frame(filter_frame)
-        types_frame.grid(row=4, column=1, padx=5, sticky="nsew")
+        types_frame.grid(row=row_offset, column=1, padx=5, sticky="nsew")
         canvas = tk.Canvas(types_frame, height=100)
         scrollbar = ttk.Scrollbar(types_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
@@ -326,20 +341,28 @@ class QueryTab:
         ttk.Button(main_frame, text="Search", command=self.update_results).grid(row=1, column=0, pady=5)
         ttk.Button(main_frame, text="Export to CSV", command=self.export_results).grid(row=2, column=0, pady=5)
         
-        # Results table
-        columns = ("name", "effects", "rarities", "types", "heroes")
+        columns = ("name", "effects", "rarities", "types", "heroes", "enchantments")
+        if self.get_sizes_func:
+            columns = ("name", "size", "effects", "rarities", "types", "heroes", "enchantments")
+        
         self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
         self.tree.heading("name", text="Name", command=lambda: self.sort_column("name"))
+        if self.get_sizes_func:
+            self.tree.heading("size", text="Size", command=lambda: self.sort_column("name"))
         self.tree.heading("effects", text="Effects", command=lambda: self.sort_column("name"))
         self.tree.heading("rarities", text="Rarities", command=lambda: self.sort_column("rarity"))
         self.tree.heading("types", text="Types", command=lambda: self.sort_column("types"))
         self.tree.heading("heroes", text="Heroes", command=lambda: self.sort_column("name"))
+        self.tree.heading("enchantments", text="Enchantments", command=lambda: self.sort_column("name"))
         
         self.tree.column("name", width=150)
+        if self.get_sizes_func:
+            self.tree.column("size", width=80)
         self.tree.column("effects", width=300)
         self.tree.column("rarities", width=100)
         self.tree.column("types", width=200)
         self.tree.column("heroes", width=150)
+        self.tree.column("enchantments", width=200)
         
         self.tree.grid(row=3, column=0, sticky="nsew")
         main_frame.columnconfigure(0, weight=1)
@@ -363,18 +386,29 @@ class QueryTab:
         effect_keyword = self.effect_var.get().strip()
         hero = self.hero_var.get()
         heroes = [hero] if hero else []
+        size = self.size_var.get() if hasattr(self, "size_var") else ""
         
-        results = self.query_func(name, rarities, types, effect_keyword, heroes, self.sort_by, self.sort_order)
+        results = self.query_func(name, rarities, types, effect_keyword, heroes, size, self.sort_by, self.sort_order)
         self.current_results = results
         
         for result in results:
-            self.tree.insert("", "end", values=(
+            values = (
+                result["name"],
+                result["size"],
+                result["effects"],
+                result["rarities"],
+                ", ".join(result["types"]),
+                ", ".join(result["heroes"]),
+                result["enchantments"]
+            ) if self.get_sizes_func else (
                 result["name"],
                 result["effects"],
                 result["rarities"],
                 ", ".join(result["types"]),
-                ", ".join(result["heroes"])
-            ))
+                ", ".join(result["heroes"]),
+                result["enchantments"]
+            )
+            self.tree.insert("", "end", values=values)
 
     def sort_column(self, column):
         if self.sort_by == column:
@@ -392,15 +426,25 @@ class QueryTab:
         filename = f"{self.entity_name.lower()}_results.csv"
         with open(filename, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Name", "Effects", "Rarities", "Types", "Heroes"])
+            headers = ["Name", "Size", "Effects", "Rarities", "Types", "Heroes", "Enchantments"] if self.get_sizes_func else ["Name", "Effects", "Rarities", "Types", "Heroes", "Enchantments"]
+            writer.writerow(headers)
             for result in self.current_results:
-                writer.writerow([
+                row = [
+                    result["name"],
+                    result["size"] if self.get_sizes_func else result["effects"],
+                    result["rarities"],
+                    ", ".join(result["types"]),
+                    ", ".join(result["heroes"]),
+                    result["enchantments"]
+                ] if self.get_sizes_func else [
                     result["name"],
                     result["effects"],
                     result["rarities"],
                     ", ".join(result["types"]),
-                    ", ".join(result["heroes"])
-                ])
+                    ", ".join(result["heroes"]),
+                    result["enchantments"]
+                ]
+                writer.writerow(row)
         messagebox.showinfo("Export", f"Results exported to {filename}")
 
 # Main application class
@@ -425,7 +469,7 @@ class SkillQueryApp:
             skills_frame, query_skills, get_rarities, get_types, get_heroes, "Skill"
         )
         self.items_tab = QueryTab(
-            items_frame, query_items, get_item_rarities, get_item_types, get_item_heroes, "Item"
+            items_frame, query_items, get_item_rarities, get_item_types, get_item_heroes, "Item", get_item_sizes
         )
 
 # Main execution
@@ -440,9 +484,11 @@ if __name__ == "__main__":
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_hero ON skill_heroes(hero)")
     # Item indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_name ON items(name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_size ON items(size)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_rarity ON item_rarities(rarity)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_type ON item_types(type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_hero ON item_heroes(hero)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_enchantment_item_id ON enchantments(item_id)")
     conn.commit()
     conn.close()
     
