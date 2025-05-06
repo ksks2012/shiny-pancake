@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Define custom rarity order
 RARITY_ORDER = ["Bronze", "Silver", "Gold", "Diamond", "Legendary"]
 
-# Function to get distinct rarities from database, sorted by custom order
+# Skill-related database functions
 def get_rarities():
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
@@ -21,7 +21,7 @@ def get_rarities():
     conn.close()
     # Sort rarities by custom order, only including those present
     sorted_rarities = sorted([r for r in rarities if r in RARITY_ORDER], key=lambda x: RARITY_ORDER.index(x))
-    return [""] + sorted_rarities  # Include empty option for "All"
+    return [""] + sorted_rarities
 
 # Function to get distinct heroes from database
 def get_heroes():
@@ -30,7 +30,7 @@ def get_heroes():
     cursor.execute("SELECT DISTINCT hero FROM skill_heroes WHERE hero IS NOT NULL ORDER BY hero")
     heroes = [row[0] for row in cursor.fetchall()]
     conn.close()
-    return [""] + heroes  # Include empty option for "All"
+    return [""] + heroes
 
 # Function to get distinct types from database
 def get_types():
@@ -138,36 +138,148 @@ def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=N
     conn.close()
     return skills
 
-# Main application class
-class SkillQueryApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Skill Query")
-        self.root.geometry("1000x600")
+# Item-related database functions
+def get_item_rarities():
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT rarity FROM item_rarities WHERE rarity IS NOT NULL")
+    rarities = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    sorted_rarities = sorted([r for r in rarities if r in RARITY_ORDER], key=lambda x: RARITY_ORDER.index(x))
+    return [""] + sorted_rarities
+
+def get_item_types():
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT type FROM item_types WHERE type IS NOT NULL ORDER BY type")
+    types = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return types
+
+def get_item_heroes():
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT hero FROM item_heroes WHERE hero IS NOT NULL ORDER BY hero")
+    heroes = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return [""] + heroes
+
+def query_items(name="", rarities=None, types=None, effect_keyword="", heroes=None, sort_by="name", sort_order="ASC"):
+    conn = sqlite3.connect("bazaar.db")
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT DISTINCT i.id, i.name,
+               GROUP_CONCAT(DISTINCT ir.rarity) as rarities,
+               GROUP_CONCAT(DISTINCT ie.effect) as effects,
+               GROUP_CONCAT(DISTINCT it.type) as types,
+               GROUP_CONCAT(DISTINCT ih.hero) as heroes
+        FROM items i
+        LEFT JOIN item_rarities ir ON i.id = ir.item_id
+        LEFT JOIN item_effects ie ON i.id = ie.item_id
+        LEFT JOIN item_types it ON i.id = it.item_id
+        LEFT JOIN item_heroes ih ON i.id = ih.item_id
+        WHERE 1=1
+    """
+    params = []
+    
+    if name:
+        query += " AND i.name LIKE ?"
+        params.append(f"%{name}%")
+    if rarities:
+        query += " AND i.id IN (SELECT item_id FROM item_rarities WHERE rarity IN ({}))".format(",".join("?" * len(rarities)))
+        params.extend(rarities)
+    if types:
+        query += " AND i.id IN (SELECT item_id FROM item_types WHERE type IN ({}))".format(",".join("?" * len(types)))
+        params.extend(types)
+    if effect_keyword:
+        query += " AND ie.effect LIKE ?"
+        params.append(f"%{effect_keyword}%")
+    if heroes:
+        query += " AND i.id IN (SELECT item_id FROM item_heroes WHERE hero IN ({}))".format(",".join("?" * len(heroes)))
+        params.extend(heroes)
+    
+    query += " GROUP BY i.id"
+    
+    if sort_by == "name":
+        query += f" ORDER BY i.name {sort_order}"
+    elif sort_by == "rarity":
+        query += f"""
+            ORDER BY (
+                MIN(
+                    CASE ir.rarity
+                        WHEN 'Bronze' THEN 1
+                        WHEN 'Silver' THEN 2
+                        WHEN 'Gold' THEN 3
+                        WHEN 'Diamond' THEN 4
+                        WHEN 'Legendary' THEN 5
+                        ELSE 6
+                    END
+                )
+            ) {sort_order}
+        """
+    elif sort_by == "types":
+        query += f" ORDER BY GROUP_CONCAT(DISTINCT it.type) {sort_order}"
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    
+    items = []
+    for row in results:
+        effects = row["effects"] or ""
+        if effects:
+            soup = BeautifulSoup(effects, "html.parser")
+            effects = soup.get_text(strip=True)
         
-        # Sorting state
+        effects_list = list(set(effects.split(","))) if effects else []
+        types_list = list(set(row["types"].split(","))) if row["types"] else []
+        rarities_list = sorted(
+            [r for r in row["rarities"].split(",") if r] if row["rarities"] else [],
+            key=lambda x: RARITY_ORDER.index(x) if x in RARITY_ORDER else len(RARITY_ORDER)
+        )
+        heroes_list = list(set(row["heroes"].split(","))) if row["heroes"] else []
+        
+        items.append({
+            "id": row["id"],
+            "name": row["name"],
+            "rarities": ", ".join(rarities_list),
+            "effects": ", ".join(effects_list),
+            "types": types_list,
+            "heroes": heroes_list
+        })
+    
+    conn.close()
+    return items
+
+# Reusable query tab class
+class QueryTab:
+    def __init__(self, parent, query_func, get_rarities_func, get_types_func, get_heroes_func, entity_name):
+        self.parent = parent
+        self.query_func = query_func
+        self.get_rarities_func = get_rarities_func
+        self.get_types_func = get_types_func
+        self.get_heroes_func = get_heroes_func
+        self.entity_name = entity_name
+        
         self.sort_by = "name"
         self.sort_order = "ASC"
         
         # Create UI elements
         self.create_widgets()
-        
-        # Initial load
-        self.update_results()
 
     def create_widgets(self):
-        # Main frame
-        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame = ttk.Frame(self.parent, padding="10")
         main_frame.grid(row=0, column=0, sticky="nsew")
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
+        self.parent.columnconfigure(0, weight=1)
+        self.parent.rowconfigure(0, weight=1)
         
         # Filter frame
         filter_frame = ttk.LabelFrame(main_frame, text="Filters", padding="5")
         filter_frame.grid(row=0, column=0, sticky="ew", pady=5)
         
         # Name search
-        ttk.Label(filter_frame, text="Skill Name:").grid(row=0, column=0, padx=5, sticky="w")
+        ttk.Label(filter_frame, text="Name:").grid(row=0, column=0, padx=5, sticky="w")
         self.name_var = tk.StringVar()
         ttk.Entry(filter_frame, textvariable=self.name_var).grid(row=0, column=1, padx=5, sticky="ew")
         
@@ -179,13 +291,13 @@ class SkillQueryApp:
         # Rarity dropdown
         ttk.Label(filter_frame, text="Rarity:").grid(row=2, column=0, padx=5, sticky="w")
         self.rarity_var = tk.StringVar()
-        rarities = get_rarities()
+        rarities = self.get_rarities_func()
         ttk.Combobox(filter_frame, textvariable=self.rarity_var, values=rarities, state="readonly").grid(row=2, column=1, padx=5, sticky="ew")
         
         # Hero dropdown
         ttk.Label(filter_frame, text="Hero:").grid(row=3, column=0, padx=5, sticky="w")
         self.hero_var = tk.StringVar()
-        heroes = get_heroes()
+        heroes = self.get_heroes_func()
         ttk.Combobox(filter_frame, textvariable=self.hero_var, values=heroes, state="readonly").grid(row=3, column=1, padx=5, sticky="ew")
         
         # Types checkboxes
@@ -204,7 +316,7 @@ class SkillQueryApp:
         scrollbar.pack(side="right", fill="y")
         
         self.type_vars = {}
-        types = get_types()
+        types = self.get_types_func()
         for i, type_name in enumerate(types):
             var = tk.BooleanVar()
             self.type_vars[type_name] = var
@@ -252,18 +364,16 @@ class SkillQueryApp:
         hero = self.hero_var.get()
         heroes = [hero] if hero else []
         
-        # Query skills
-        skills = query_skills(name, rarities, types, effect_keyword, heroes, self.sort_by, self.sort_order)
-        self.current_skills = skills  # Store for export
+        results = self.query_func(name, rarities, types, effect_keyword, heroes, self.sort_by, self.sort_order)
+        self.current_results = results
         
-        # Populate table
-        for skill in skills:
+        for result in results:
             self.tree.insert("", "end", values=(
-                skill["name"],
-                skill["effects"],
-                skill["rarities"],
-                ", ".join(skill["types"]),
-                ", ".join(skill["heroes"])
+                result["name"],
+                result["effects"],
+                result["rarities"],
+                ", ".join(result["types"]),
+                ", ".join(result["heroes"])
             ))
 
     def sort_column(self, column):
@@ -275,33 +385,64 @@ class SkillQueryApp:
         self.update_results()
 
     def export_results(self):
-        if not hasattr(self, "current_skills") or not self.current_skills:
+        if not hasattr(self, "current_results") or not self.current_results:
             messagebox.showinfo("Export", "No results to export.")
             return
         
-        filename = "skill_results.csv"
+        filename = f"{self.entity_name.lower()}_results.csv"
         with open(filename, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["Name", "Effects", "Rarities", "Types", "Heroes"])
-            for skill in self.current_skills:
+            for result in self.current_results:
                 writer.writerow([
-                    skill["name"],
-                    skill["effects"],
-                    skill["rarities"],
-                    ", ".join(skill["types"]),
-                    ", ".join(skill["heroes"])
+                    result["name"],
+                    result["effects"],
+                    result["rarities"],
+                    ", ".join(result["types"]),
+                    ", ".join(result["heroes"])
                 ])
         messagebox.showinfo("Export", f"Results exported to {filename}")
+
+# Main application class
+class SkillQueryApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Skill and Item Query")
+        self.root.geometry("1000x600")
+        
+        notebook = ttk.Notebook(self.root)
+        notebook.grid(row=0, column=0, sticky="nsew")
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        
+        skills_frame = ttk.Frame(notebook)
+        items_frame = ttk.Frame(notebook)
+        
+        notebook.add(skills_frame, text="Skills")
+        notebook.add(items_frame, text="Items")
+        
+        self.skills_tab = QueryTab(
+            skills_frame, query_skills, get_rarities, get_types, get_heroes, "Skill"
+        )
+        self.items_tab = QueryTab(
+            items_frame, query_items, get_item_rarities, get_item_types, get_item_heroes, "Item"
+        )
 
 # Main execution
 if __name__ == "__main__":
     # Create indexes for performance (if not already created)
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
+    # Skill indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_name ON skills(name)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_rarity ON skill_rarities(rarity)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_type ON skill_types(type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_hero ON skill_heroes(hero)")
+    # Item indexes
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_name ON items(name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_rarity ON item_rarities(rarity)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_type ON item_types(type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_hero ON item_heroes(hero)")
     conn.commit()
     conn.close()
     
