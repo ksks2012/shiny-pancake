@@ -29,8 +29,15 @@ def create_database_items():
         CREATE TABLE IF NOT EXISTS items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            hero TEXT NOT NULL,
             size TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS item_heroes (
+            item_id INTEGER,
+            hero TEXT NOT NULL,
+            FOREIGN KEY (item_id) REFERENCES items(id)
         )
     """)
     
@@ -132,8 +139,11 @@ def parse_and_store_items(html_file):
                 print(f"Missing enchantment for {name}: {enc_name}. Using default: {DEFAULT_ENCHANTMENTS[enc_name]}")
         
         # Insert item into database
-        cursor.execute("INSERT INTO items (name, hero, size) VALUES (?, ?, ?)", (name, hero, size))
+        cursor.execute("INSERT INTO items (name, size) VALUES (?, ?)", (name, size))
         item_id = cursor.lastrowid
+
+        # Insert hero
+        cursor.execute("INSERT INTO item_heroes (item_id, hero) VALUES (?, ?)", (item_id, hero))
         
         # Insert types
         for type_name in types:
