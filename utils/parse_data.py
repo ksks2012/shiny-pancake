@@ -1,5 +1,5 @@
 from parse_bazaar_items import create_database_items, parse_and_store_items
-from parse_bazaar_skills import create_database_skills, parse_and_store_skills
+from parse_bazaar_skills import create_database_skills, parse_and_store_skills, parse_monster_skills
 
 import os
 import logging
@@ -23,5 +23,7 @@ if __name__ == "__main__":
             parse_and_store_skills(html_file)
         else:
             logging.warning(f"File {html_file} not found, skipping.")
+
+    parse_monster_skills("./var/monster_skill_data.html")
     
     print("Skill data parsed and stored successfully.")

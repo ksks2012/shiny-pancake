@@ -73,7 +73,7 @@ def clean_effect_text(effect_html):
     return text
 
 # Function to parse HTML and store skill data in database
-def parse_and_store_skills(html_file):
+def parse_and_store_skills(html_file: str):
     # Read HTML file
     with open(html_file, "r", encoding="utf-8") as file:
         soup = BeautifulSoup(file, "html.parser")
@@ -90,7 +90,7 @@ def parse_and_store_skills(html_file):
         # Parse skill_w_types.html (wiki format)
         skill_table = soup.find("table", class_="wikitable sortable jquery-tablesorter")
         if not skill_table:
-            logging.error("No skill table found in ./var/skill_w_types.html")
+            logging.error(f"No skill table found in {html_file}")
             return
         
         skill_rows = skill_table.find("tbody").find_all("tr")
@@ -102,7 +102,11 @@ def parse_and_store_skills(html_file):
             # Extract name
             name = cols[1].find("a").get_text(strip=True) if cols[1].find("a") else ""
             logging.info(f"Processing skill: {name}")
-            
+
+            cursor.execute("SELECT id FROM skills WHERE name = ?", (name,))
+            if cursor.fetchone() is not None:
+                continue
+
             # Extract icon URL
             img_tag = cols[0].find("img")
             icon_url = img_tag["src"] if img_tag and "src" in img_tag.attrs else ""
@@ -133,7 +137,7 @@ def parse_and_store_skills(html_file):
             # Insert types
             for skill_type in types:
                 skill_type = skill_type.replace("Reference", "").strip()
-                skill_type = skill_type.replace("SLow", "slow").strip()
+                skill_type = skill_type.replace("SLow", "Slow").strip()
                 print("skill_type", skill_type)
                 cursor.execute("INSERT OR IGNORE INTO skill_types (skill_id, type) VALUES (?, ?)", 
                              (skill_id, skill_type))
@@ -205,6 +209,45 @@ def parse_and_store_skills(html_file):
     conn.commit()
     conn.close()
 
+def parse_monster_skills(html_file: str):
+    with open(html_file, "r", encoding="utf-8") as file:
+        soup = BeautifulSoup(file, "html.parser")
+    
+    # Connect to database
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+
+    skill_table = soup.find("table", class_="wikitable sortable jquery-tablesorter")
+    if not skill_table:
+        logging.error(f"No skill table found in {html_file}")
+        return
+    
+    count = 0
+    skill_rows = skill_table.find("tbody").find_all("tr")
+    for row in skill_rows:
+        cols = row.find_all("td")
+        if len(cols) < 5:
+            continue
+            
+        # Extract name
+        name = cols[1].find("a").get_text(strip=True) if cols[1].find("a") else ""
+        logging.info(f"Processing monster skill: {name}")
+
+        # Update skill_heroes table to mark the skill as associated with "monster"
+        cursor.execute("SELECT id FROM skills WHERE name = ?", (name,))
+        skill_id = cursor.fetchone()
+        if skill_id:
+            cursor.execute("INSERT OR IGNORE INTO skill_heroes (skill_id, hero) VALUES (?, ?)", (skill_id[0], "Monster"))
+            logging.info(f"Marked skill {name} as associated with 'Monster'")
+
+        count += 1
+
+    logging.info(f"Total monster skills processed: {count}")
+    
+    # Commit changes and close connection
+    conn.commit()
+    conn.close()
+
 # Main execution
 if __name__ == "__main__":
     # Create database and tables
@@ -219,5 +262,6 @@ if __name__ == "__main__":
             logging.warning(f"File {html_file} not found, skipping.")
     
     # TODO: Mark moster skills as hero in skill_heroes table
+    parse_monster_skills("./var/monster_skill_data.html")
 
     print("Skill data parsed and stored successfully.")
