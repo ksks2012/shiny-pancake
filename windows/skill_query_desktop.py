@@ -27,15 +27,25 @@ def get_heroes():
     conn.close()
     return [""] + heroes  # Include empty option for "All"
 
+# Function to get distinct types from database
+def get_types():
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT type FROM skill_types WHERE type IS NOT NULL ORDER BY type")
+    types = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return types
+
 # Function to query skills with filters
-def query_skills(name="", rarity="", types=None, effect_keyword="", hero="", sort_by="name", sort_order="ASC"):
+def query_skills(name="", rarities=None, types=None, effect_keyword="", heroes=None, sort_by="name", sort_order="ASC"):
     conn = sqlite3.connect("bazaar.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     # Base query with DISTINCT in GROUP_CONCAT to avoid duplicates
     query = """
-        SELECT DISTINCT s.id, s.name, sr.rarity,
+        SELECT DISTINCT s.id, s.name,
+               GROUP_CONCAT(DISTINCT sr.rarity) as rarities,
                GROUP_CONCAT(DISTINCT se.effect) as effects,
                GROUP_CONCAT(DISTINCT st.type) as types,
                GROUP_CONCAT(DISTINCT sh.hero) as heroes
@@ -52,19 +62,19 @@ def query_skills(name="", rarity="", types=None, effect_keyword="", hero="", sor
     if name:
         query += " AND s.name LIKE ?"
         params.append(f"%{name}%")
-    if rarity:
-        query += " AND sr.rarity = ?"
-        params.append(rarity)
+    if rarities:
+        query += " AND s.id IN (SELECT skill_id FROM skill_rarities WHERE rarity IN ({}))".format(",".join("?" * len(rarities)))
+        params.extend(rarities)
     if types:
-        query += " AND st.type IN ({})".format(",".join("?" * len(types)))
+        query += " AND s.id IN (SELECT skill_id FROM skill_types WHERE type IN ({}))".format(",".join("?" * len(types)))
         params.extend(types)
     if effect_keyword:
         query += " AND se.effect LIKE ?"
         params.append(f"%{effect_keyword}%")
-    if hero:
-        query += " AND sh.hero = ?"
-        params.append(hero)
-        query += " OR sh.hero IS NULL"  # Include skills with no hero
+    if heroes:
+        query += " AND s.id IN (SELECT skill_id FROM skill_heroes WHERE hero IN ({}))".format(",".join("?" * len(heroes)))
+        params.extend(heroes)
+
     
     # Group by to avoid duplicates
     query += " GROUP BY s.id"
@@ -73,7 +83,7 @@ def query_skills(name="", rarity="", types=None, effect_keyword="", hero="", sor
     if sort_by == "name":
         query += f" ORDER BY s.name {sort_order}"
     elif sort_by == "rarity":
-        query += f" ORDER BY sr.rarity {sort_order}"
+        query += f" ORDER BY GROUP_CONCAT(DISTINCT sr.rarity) {sort_order}"
     elif sort_by == "types":
         query += f" ORDER BY GROUP_CONCAT(DISTINCT st.type) {sort_order}"
     
@@ -83,36 +93,27 @@ def query_skills(name="", rarity="", types=None, effect_keyword="", hero="", sor
     
     # Process results
     skills = []
-    skills_set = set()
     for row in results:
-        print(row["name"])
-        if row["name"] in skills_set:
-            print(f"Duplicate skill ID found: {row["id"]}, skipping.")
-            continue
-
         # Clean HTML from effects
         effects = row["effects"] or ""
         if effects:
             soup = BeautifulSoup(effects, "html.parser")
             effects = soup.get_text(strip=True)
         
-        # Split and deduplicate effects, types, and heroes
+        # Split and deduplicate effects, types, rarities, and heroes
         effects_list = list(set(effects.split(","))) if effects else []
         types_list = list(set(row["types"].split(","))) if row["types"] else []
+        rarities_list = list(set(row["rarities"].split(","))) if row["rarities"] else []
         heroes_list = list(set(row["heroes"].split(","))) if row["heroes"] else []
         
         skills.append({
             "id": row["id"],
             "name": row["name"],
-            "rarity": row["rarity"],
+            "rarities": ", ".join(rarities_list),
             "effects": ", ".join(effects_list),
             "types": types_list,
             "heroes": heroes_list
         })
-
-        skills_set.add(row["name"])
-
-    print(skills_set)
     
     conn.close()
     return skills
@@ -183,17 +184,7 @@ class SkillQueryApp:
         scrollbar.pack(side="right", fill="y")
         
         self.type_vars = {}
-        # Fetch types from the database
-        def get_types():
-            conn = sqlite3.connect("bazaar.db")
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT type FROM skill_types WHERE type IS NOT NULL ORDER BY type")
-            types = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            return types
-
         types = get_types()
-        
         for i, type_name in enumerate(types):
             var = tk.BooleanVar()
             self.type_vars[type_name] = var
@@ -204,17 +195,17 @@ class SkillQueryApp:
         ttk.Button(main_frame, text="Export to CSV", command=self.export_results).grid(row=2, column=0, pady=5)
         
         # Results table
-        columns = ("name", "effects", "rarity", "types", "heroes")
+        columns = ("name", "effects", "rarities", "types", "heroes")
         self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
         self.tree.heading("name", text="Name", command=lambda: self.sort_column("name"))
         self.tree.heading("effects", text="Effects", command=lambda: self.sort_column("name"))
-        self.tree.heading("rarity", text="Rarity", command=lambda: self.sort_column("rarity"))
+        self.tree.heading("rarities", text="Rarities", command=lambda: self.sort_column("rarity"))
         self.tree.heading("types", text="Types", command=lambda: self.sort_column("types"))
         self.tree.heading("heroes", text="Heroes", command=lambda: self.sort_column("name"))
         
         self.tree.column("name", width=150)
         self.tree.column("effects", width=300)
-        self.tree.column("rarity", width=100)
+        self.tree.column("rarities", width=100)
         self.tree.column("types", width=200)
         self.tree.column("heroes", width=150)
         
@@ -235,12 +226,14 @@ class SkillQueryApp:
         # Get filter values
         name = self.name_var.get().strip()
         rarity = self.rarity_var.get()
+        rarities = [rarity] if rarity else []
         types = [t for t, var in self.type_vars.items() if var.get()]
         effect_keyword = self.effect_var.get().strip()
         hero = self.hero_var.get()
+        heroes = [hero] if hero else []
         
         # Query skills
-        skills = query_skills(name, rarity, types, effect_keyword, hero, self.sort_by, self.sort_order)
+        skills = query_skills(name, rarities, types, effect_keyword, heroes, self.sort_by, self.sort_order)
         self.current_skills = skills  # Store for export
         
         # Populate table
@@ -248,7 +241,7 @@ class SkillQueryApp:
             self.tree.insert("", "end", values=(
                 skill["name"],
                 skill["effects"],
-                skill["rarity"],
+                skill["rarities"],
                 ", ".join(skill["types"]),
                 ", ".join(skill["heroes"])
             ))
@@ -269,12 +262,12 @@ class SkillQueryApp:
         filename = "skill_results.csv"
         with open(filename, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Name", "Effects", "Rarity", "Types", "Heroes"])
+            writer.writerow(["Name", "Effects", "Rarities", "Types", "Heroes"])
             for skill in self.current_skills:
                 writer.writerow([
                     skill["name"],
                     skill["effects"],
-                    skill["rarity"],
+                    skill["rarities"],
                     ", ".join(skill["types"]),
                     ", ".join(skill["heroes"])
                 ])
