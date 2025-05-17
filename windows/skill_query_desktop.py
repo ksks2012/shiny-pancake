@@ -1,7 +1,9 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
-import sqlite3
 from bs4 import BeautifulSoup
+from datetime import datetime
+from tkinter import ttk, messagebox
+
+import tkinter as tk
+import sqlite3
 import logging
 import csv
 import os
@@ -264,6 +266,241 @@ def query_items(name="", rarities=None, types=None, effect_keyword="", heroes=No
     conn.close()
     return items
 
+# Video-related database functions
+def get_videos(video_type="", status="", sort_by="date", sort_order="DESC"):
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    query = "SELECT id, title, type, date, status, description FROM videos WHERE 1=1"
+    params = []
+    
+    if video_type:
+        query += " AND type = ?"
+        params.append(video_type)
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    
+    query += f" ORDER BY {sort_by} {sort_order}"
+    cursor.execute(query, params)
+    videos = [{"id": row[0], "title": row[1], "type": row[2], "date": row[3], "status": row[4], "description": row[5]} for row in cursor.fetchall()]
+    conn.close()
+    return videos
+
+def add_video(title, video_type, date, status, description):
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO videos (title, type, date, status, description) VALUES (?, ?, ?, ?, ?)",
+                  (title, video_type, date, status, description))
+    conn.commit()
+    conn.close()
+
+def update_video(video_id, title, video_type, date, status, description):
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE videos SET title = ?, type = ?, date = ?, status = ?, description = ? WHERE id = ?",
+                  (title, video_type, date, status, description, video_id))
+    conn.commit()
+    conn.close()
+
+def delete_video(video_id):
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+    conn.commit()
+    conn.close()
+
+# Video management tab
+class VideoTab:
+    def __init__(self, parent):
+        self.parent = parent
+        self.create_widgets()
+
+    def create_widgets(self):
+        main_frame = ttk.Frame(self.parent, padding="10")
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        self.parent.columnconfigure(0, weight=1)
+        self.parent.rowconfigure(0, weight=1)
+
+        # Filter frame
+        filter_frame = ttk.LabelFrame(main_frame, text="Filters", padding="5")
+        filter_frame.grid(row=0, column=0, sticky="ew", pady=5)
+
+        ttk.Label(filter_frame, text="Type:").grid(row=0, column=0, padx=5, sticky="w")
+        self.type_var = tk.StringVar()
+        ttk.Combobox(filter_frame, textvariable=self.type_var, values=["", "Short", "Long"], state="readonly").grid(row=0, column=1, padx=5, sticky="ew")
+
+        ttk.Label(filter_frame, text="Status:").grid(row=1, column=0, padx=5, sticky="w")
+        self.status_var = tk.StringVar()
+        ttk.Combobox(filter_frame, textvariable=self.status_var, values=["", "Draft", "Published"], state="readonly").grid(row=1, column=1, padx=5, sticky="ew")
+
+        ttk.Button(filter_frame, text="Search", command=self.update_results).grid(row=2, column=0, columnspan=2, pady=5)
+
+        # Input frame
+        input_frame = ttk.LabelFrame(main_frame, text="Add/Edit Video", padding="5")
+        input_frame.grid(row=1, column=0, sticky="ew", pady=5)
+
+        ttk.Label(input_frame, text="Title:").grid(row=0, column=0, padx=5, sticky="w")
+        self.title_var = tk.StringVar()
+        ttk.Entry(input_frame, textvariable=self.title_var).grid(row=0, column=1, padx=5, sticky="ew")
+
+        ttk.Label(input_frame, text="Type:").grid(row=1, column=0, padx=5, sticky="w")
+        self.input_type_var = tk.StringVar()
+        ttk.Combobox(input_frame, textvariable=self.input_type_var, values=["Short", "Long"], state="readonly").grid(row=1, column=1, padx=5, sticky="ew")
+
+        ttk.Label(input_frame, text="Date (YYYY-MM-DD):").grid(row=2, column=0, padx=5, sticky="w")
+        self.date_var = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+        ttk.Entry(input_frame, textvariable=self.date_var).grid(row=2, column=1, padx=5, sticky="ew")
+
+        ttk.Label(input_frame, text="Status:").grid(row=3, column=0, padx=5, sticky="w")
+        self.input_status_var = tk.StringVar()
+        ttk.Combobox(input_frame, textvariable=self.input_status_var, values=["Draft", "Published"], state="readonly").grid(row=3, column=1, padx=5, sticky="ew")
+
+        ttk.Label(input_frame, text="Description:").grid(row=4, column=0, padx=5, sticky="w")
+        self.description_var = tk.StringVar()
+        ttk.Entry(input_frame, textvariable=self.description_var).grid(row=4, column=1, padx=5, sticky="ew")
+
+        ttk.Button(input_frame, text="Add Video", command=self.add_video).grid(row=5, column=0, pady=5)
+        ttk.Button(input_frame, text="Update Selected", command=self.update_selected).grid(row=5, column=1, pady=5)
+
+        # Results table
+        columns = ("title", "type", "date", "status", "description")
+        self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
+        self.tree.heading("title", text="Title", command=lambda: self.sort_column("title"))
+        self.tree.heading("type", text="Type", command=lambda: self.sort_column("type"))
+        self.tree.heading("date", text="Date", command=lambda: self.sort_column("date"))
+        self.tree.heading("status", text="Status", command=lambda: self.sort_column("status"))
+        self.tree.heading("description", text="Description")
+        self.tree.column("title", width=300)
+        self.tree.column("type", width=80)
+        self.tree.column("date", width=100)
+        self.tree.column("status", width=80)
+        self.tree.column("description", width=300)
+        self.tree.grid(row=2, column=0, sticky="nsew")
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)
+
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.tree.yview)
+        scrollbar.grid(row=2, column=1, sticky="ns")
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        ttk.Button(main_frame, text="Delete Selected", command=self.delete_selected).grid(row=3, column=0, pady=5)
+
+        self.tree.bind("<<TreeviewSelect>>", self.load_selected)
+
+        self.sort_by = "date"
+        self.sort_order = "DESC"
+        self.update_results()
+
+    def update_results(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        video_type = self.type_var.get()
+        status = self.status_var.get()
+        videos = get_videos(video_type, status, self.sort_by, self.sort_order)
+        
+        for video in videos:
+            self.tree.insert("", "end", values=(
+                video["title"],
+                video["type"],
+                video["date"],
+                video["status"],
+                video["description"]
+            ))
+
+    def sort_column(self, column):
+        if self.sort_by == column:
+            self.sort_order = "DESC" if self.sort_order == "ASC" else "ASC"
+        else:
+            self.sort_by = column
+            self.sort_order = "ASC"
+        self.update_results()
+
+    def add_video(self):
+        title = self.title_var.get().strip()
+        video_type = self.input_type_var.get()
+        date = self.date_var.get().strip()
+        status = self.input_status_var.get()
+        description = self.description_var.get().strip()
+        
+        if not title or not video_type or not date or not status:
+            messagebox.showerror("Error", "Please fill all required fields.")
+            return
+        
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            messagebox.showerror("Error", "Date must be in YYYY-MM-DD format.")
+            return
+        
+        add_video(title, video_type, date, status, description)
+        self.update_results()
+        self.clear_inputs()
+
+    def load_selected(self, event):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        item = self.tree.item(selected[0])
+        values = item["values"]
+        self.title_var.set(values[0])
+        self.input_type_var.set(values[1])
+        self.date_var.set(values[2])
+        self.input_status_var.set(values[3])
+        self.description_var.set(values[4])
+
+    def update_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a video to update.")
+            return
+        
+        video_id = self.tree.item(selected[0])["values"][0]
+        videos = get_videos()
+        video_id = next(v["id"] for v in videos if v["title"] == video_id)
+        
+        title = self.title_var.get().strip()
+        video_type = self.input_type_var.get()
+        date = self.date_var.get().strip()
+        status = self.input_status_var.get()
+        description = self.description_var.get().strip()
+        
+        if not title or not video_type or not date or not status:
+            messagebox.showerror("Error", "Please fill all required fields.")
+            return
+        
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            messagebox.showerror("Error", "Date must be in YYYY-MM-DD format.")
+            return
+        
+        update_video(video_id, title, video_type, date, status, description)
+        self.update_results()
+        self.clear_inputs()
+
+    def delete_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a video to delete.")
+            return
+        
+        if messagebox.askyesno("Confirm", "Are you sure you want to delete the selected video?"):
+            video_id = self.tree.item(selected[0])["values"][0]
+            videos = get_videos()
+            video_id = next(v["id"] for v in videos if v["title"] == video_id)
+            delete_video(video_id)
+            self.update_results()
+            self.clear_inputs()
+
+    def clear_inputs(self):
+        self.title_var.set("")
+        self.input_type_var.set("")
+        self.date_var.set(datetime.now().strftime("%Y-%m-%d"))
+        self.input_status_var.set("")
+        self.description_var.set("")
+
 # Reusable query tab class
 class QueryTab:
     def __init__(self, parent, query_func, get_rarities_func, get_types_func, get_heroes_func, entity_name, get_sizes_func=None):
@@ -451,7 +688,7 @@ class QueryTab:
 class SkillQueryApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Skill and Item Query")
+        self.root.title("Skill, Item, and Video Query")
         self.root.geometry("1000x600")
         
         notebook = ttk.Notebook(self.root)
@@ -461,9 +698,11 @@ class SkillQueryApp:
         
         skills_frame = ttk.Frame(notebook)
         items_frame = ttk.Frame(notebook)
+        videos_frame = ttk.Frame(notebook)
         
         notebook.add(skills_frame, text="Skills")
         notebook.add(items_frame, text="Items")
+        notebook.add(videos_frame, text="Videos")
         
         self.skills_tab = QueryTab(
             skills_frame, query_skills, get_rarities, get_types, get_heroes, "Skill"
@@ -471,10 +710,23 @@ class SkillQueryApp:
         self.items_tab = QueryTab(
             items_frame, query_items, get_item_rarities, get_item_types, get_item_heroes, "Item", get_item_sizes
         )
+        self.videos_tab = VideoTab(videos_frame)
+
+def create_video_table(cursor):
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS videos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            type TEXT NOT NULL,
+            date TEXT,
+            status TEXT,
+            description TEXT
+        )
+    """)
 
 # Main execution
 if __name__ == "__main__":
-    # Create indexes for performance (if not already created)
+    # Create indexes and video table
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
     # Skill indexes
@@ -489,6 +741,9 @@ if __name__ == "__main__":
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_type ON item_types(type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_hero ON item_heroes(hero)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_enchantment_item_id ON enchantments(item_id)")
+
+    create_video_table(cursor)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_date ON videos(date)")
     conn.commit()
     conn.close()
     
