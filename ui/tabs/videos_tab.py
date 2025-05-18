@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
+from tkcalendar import DateEntry
 from ui.search_popup import SearchPopup
 
 class VideoTab:
@@ -71,9 +72,10 @@ class VideoTab:
         self.input_type_var = tk.StringVar()
         ttk.Combobox(input_frame, textvariable=self.input_type_var, values=["Short", "Long"], state="readonly").grid(row=1, column=1, padx=5, sticky="ew")
 
-        ttk.Label(input_frame, text="Date (YYYY-MM-DD):").grid(row=2, column=0, padx=5, sticky="w")
-        self.date_var = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
-        ttk.Entry(input_frame, textvariable=self.date_var).grid(row=2, column=1, padx=5, sticky="ew")
+        ttk.Label(input_frame, text="Date:").grid(row=2, column=0, padx=5, sticky="w")
+        self.date_entry = DateEntry(input_frame, date_pattern="yyyy-mm-dd", width=12)
+        self.date_entry.grid(row=2, column=1, padx=5, sticky="ew")
+        self.date_entry.set_date(datetime.now())
 
         ttk.Label(input_frame, text="Status:").grid(row=3, column=0, padx=5, sticky="w")
         self.input_status_var = tk.StringVar()
@@ -235,7 +237,7 @@ class VideoTab:
     def add_video(self):
         title = self.title_var.get().strip()
         video_type = self.input_type_var.get()
-        date = self.date_var.get().strip()
+        date = self.date_entry.get()
         status = self.input_status_var.get()
         description = self.description_var.get().strip()
         if not title or not video_type or not date or not status:
@@ -261,7 +263,7 @@ class VideoTab:
         values = item["values"]
         self.title_var.set(values[0])
         self.input_type_var.set(values[1])
-        self.date_var.set(values[2])
+        self.date_entry.set_date(datetime.strptime(values[2], "%Y-%m-%d"))
         self.input_status_var.set(values[3])
         self.description_var.set(values[6])
         with self.video_db.db.get_connection() as conn:
@@ -291,7 +293,7 @@ class VideoTab:
         video_id = next(v["id"] for v in videos if v["title"] == video_id)
         title = self.title_var.get().strip()
         video_type = self.input_type_var.get()
-        date = self.date_var.get().strip()
+        date = self.date_entry.get()
         status = self.input_status_var.get()
         description = self.description_var.get().strip()
         if not title or not video_type or not date or not status:
@@ -325,7 +327,7 @@ class VideoTab:
     def clear_inputs(self):
         self.title_var.set("")
         self.input_type_var.set("")
-        self.date_var.set(datetime.now().strftime("%Y-%m-%d"))
+        self.date_entry.set_date(datetime.now())
         self.input_status_var.set("")
         self.description_var.set("")
         self.selected_skills = []

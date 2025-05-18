@@ -78,8 +78,7 @@ class SearchPopup:
         for item in self.tree.get_children():
             self.tree.delete(item)
         filters = self.filter_widgets.get_filter_values()
-        if self.get_sizes_func != None:
-            results = self.query_func(
+        results = self.query_func(
                 name=filters["name"],
                 rarities=[filters["rarity"]] if filters["rarity"] else [],
                 types=filters["types"],
@@ -88,9 +87,7 @@ class SearchPopup:
                 size=filters["size"],
                 sort_by="name",
                 sort_order="ASC"
-            )
-        else:
-            results = self.query_func(
+            ) if self.get_sizes_func != None else self.query_func(
                 name=filters["name"],
                 rarities=[filters["rarity"]] if filters["rarity"] else [],
                 types=filters["types"],
