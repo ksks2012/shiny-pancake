@@ -4,9 +4,9 @@ from db.db_routine import DBRoutine
 from db.skills import SkillDB
 from db.items import ItemDB
 from db.videos import VideoDB
-from tabs.skills_tab import SkillsTab
-from tabs.items_tab import ItemsTab
-from tabs.videos_tab import VideoTab
+from ui.tabs.skills_tab import SkillsTab
+from ui.tabs.items_tab import ItemsTab
+from ui.tabs.videos_tab import VideoTab
 
 class SkillQueryApp:
     def __init__(self, root):
