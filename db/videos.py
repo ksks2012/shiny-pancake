@@ -41,9 +41,9 @@ class VideoDB:
         if item_ids:
             query += " AND v.id IN (SELECT video_id FROM video_items WHERE item_id IN ({}))".format(",".join("?" * len(item_ids)))
             params.extend(item_ids)
-        if hero_name:
-            query += " AND v.id IN (SELECT video_id FROM video_heroes WHERE hero_name LIKE ?)"
-            params.append(f"%{hero_name}%")
+        if hero_name and hero_name != "":
+            query += " AND v.id IN (SELECT video_id FROM video_heroes WHERE hero_name = ?)"
+            params.append(hero_name)
         query += " GROUP BY v.id"
         query += f" ORDER BY v.{sort_by} {sort_order}"
         

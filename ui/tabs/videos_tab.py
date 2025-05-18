@@ -48,9 +48,14 @@ class VideoTab:
         self.item_filter_entry.grid(row=3, column=1, padx=5, sticky="ew")
         ttk.Button(filter_frame, text="Advanced Search", command=self.open_item_search).grid(row=3, column=2, padx=5)
 
-        ttk.Label(filter_frame, text="Hero Name:").grid(row=4, column=0, padx=5, sticky="w")
-        self.hero_filter_var = tk.StringVar()
-        ttk.Entry(filter_frame, textvariable=self.hero_filter_var).grid(row=4, column=1, padx=5, sticky="ew")
+        ttk.Label(filter_frame, text="Heroes:").grid(row=4, column=0, padx=5, sticky="nw")
+        self.heroes_filter_listbox = tk.Listbox(filter_frame, selectmode="single", height=5, exportselection=0)
+        self.heroes_filter_listbox.grid(row=4, column=1, padx=5, sticky="ew")
+        for hero in self.heroes:
+            self.heroes_filter_listbox.insert("end", hero)
+        heroes_scrollbar = ttk.Scrollbar(filter_frame, orient="vertical", command=self.heroes_filter_listbox.yview)
+        heroes_scrollbar.grid(row=4, column=2, sticky="ns")
+        self.heroes_filter_listbox.configure(yscrollcommand=heroes_scrollbar.set)
 
         ttk.Button(filter_frame, text="Search", command=self.update_results).grid(row=5, column=0, columnspan=3, pady=5)
 
@@ -91,7 +96,7 @@ class VideoTab:
         ttk.Button(input_frame, text="Select Items", command=self.select_items).grid(row=6, column=2, padx=5)
 
         ttk.Label(input_frame, text="Heroes:").grid(row=7, column=0, padx=5, sticky="nw")
-        self.heroes_listbox = tk.Listbox(input_frame, selectmode="multiple", height=5, exportselection=0)
+        self.heroes_listbox = tk.Listbox(input_frame, selectmode="single", height=5, exportselection=0)
         self.heroes_listbox.grid(row=7, column=1, padx=5, sticky="ew")
         for hero in self.heroes:
             self.heroes_listbox.insert("end", hero)
@@ -197,12 +202,13 @@ class VideoTab:
     def update_results(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
+        selected_heroes = [self.heroes[i] for i in self.heroes_filter_listbox.curselection()]
         videos = self.video_db.get_videos(
             video_type=self.type_var.get(),
             status=self.status_var.get(),
             skill_ids=self.skill_filter_ids if self.skill_filter_ids else None,
             item_ids=self.item_filter_ids if self.item_filter_ids else None,
-            hero_name=self.hero_filter_var.get().strip(),
+            hero_name=selected_heroes[0] if len(selected_heroes) != 0 else None,
             sort_by=self.sort_by,
             sort_order=self.sort_order
         )
