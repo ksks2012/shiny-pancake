@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
-from windows.search_popup import SearchPopup
+from ui.search_popup import SearchPopup
 
 class VideoTab:
     def __init__(self, parent, video_db, skill_db, item_db):

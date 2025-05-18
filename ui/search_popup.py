@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from windows.filter_widgets import FilterWidgets
+from ui.filter_widgets import FilterWidgets
 
 class SearchPopup:
     def __init__(self, parent, title, query_func, get_rarities_func, get_types_func, get_heroes_func, entity_name, get_sizes_func=None):

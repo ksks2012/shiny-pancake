@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 import csv
-from windows.filter_widgets import FilterWidgets
+from ui.filter_widgets import FilterWidgets
 
 class SkillsTab:
     def __init__(self, parent, skill_db):
