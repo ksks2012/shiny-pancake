@@ -41,7 +41,8 @@ class DBRoutine:
                     type TEXT NOT NULL,
                     date TEXT,
                     status TEXT,
-                    description TEXT
+                    description TEXT,
+                    local_path TEXT
                 )
             """)
             cursor.execute("""

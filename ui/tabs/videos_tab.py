@@ -85,32 +85,36 @@ class VideoTab:
         self.description_var = tk.StringVar()
         ttk.Entry(input_frame, textvariable=self.description_var).grid(row=4, column=1, padx=5, sticky="ew")
 
-        ttk.Label(input_frame, text="Skills:").grid(row=5, column=0, padx=5, sticky="w")
+        ttk.Label(input_frame, text="Local Path:").grid(row=5, column=0, padx=5, sticky="w")
+        self.local_path_var = tk.StringVar()
+        ttk.Entry(input_frame, textvariable=self.local_path_var).grid(row=5, column=1, padx=5, sticky="ew")
+
+        ttk.Label(input_frame, text="Skills:").grid(row=6, column=0, padx=5, sticky="w")
         self.skills_var = tk.StringVar()
         self.skills_entry = ttk.Entry(input_frame, textvariable=self.skills_var, state="readonly")
-        self.skills_entry.grid(row=5, column=1, padx=5, sticky="ew")
-        ttk.Button(input_frame, text="Select Skills", command=self.select_skills).grid(row=5, column=2, padx=5)
+        self.skills_entry.grid(row=6, column=1, padx=5, sticky="ew")
+        ttk.Button(input_frame, text="Select Skills", command=self.select_skills).grid(row=6, column=2, padx=5)
 
-        ttk.Label(input_frame, text="Items:").grid(row=6, column=0, padx=5, sticky="w")
+        ttk.Label(input_frame, text="Items:").grid(row=7, column=0, padx=5, sticky="w")
         self.items_var = tk.StringVar()
         self.items_entry = ttk.Entry(input_frame, textvariable=self.items_var, state="readonly")
-        self.items_entry.grid(row=6, column=1, padx=5, sticky="ew")
-        ttk.Button(input_frame, text="Select Items", command=self.select_items).grid(row=6, column=2, padx=5)
+        self.items_entry.grid(row=7, column=1, padx=5, sticky="ew")
+        ttk.Button(input_frame, text="Select Items", command=self.select_items).grid(row=7, column=2, padx=5)
 
-        ttk.Label(input_frame, text="Heroes:").grid(row=7, column=0, padx=5, sticky="nw")
+        ttk.Label(input_frame, text="Heroes:").grid(row=8, column=0, padx=5, sticky="nw")
         self.heroes_listbox = tk.Listbox(input_frame, selectmode="single", height=5, exportselection=0)
-        self.heroes_listbox.grid(row=7, column=1, padx=5, sticky="ew")
+        self.heroes_listbox.grid(row=8, column=1, padx=5, sticky="ew")
         for hero in self.heroes:
             self.heroes_listbox.insert("end", hero)
         scrollbar = ttk.Scrollbar(input_frame, orient="vertical", command=self.heroes_listbox.yview)
-        scrollbar.grid(row=7, column=2, sticky="ns")
+        scrollbar.grid(row=8, column=2, sticky="ns")
         self.heroes_listbox.configure(yscrollcommand=scrollbar.set)
 
-        ttk.Button(input_frame, text="Add Video", command=self.add_video).grid(row=8, column=0, pady=5)
-        ttk.Button(input_frame, text="Update Selected", command=self.update_selected).grid(row=8, column=1, pady=5)
+        ttk.Button(input_frame, text="Add Video", command=self.add_video).grid(row=9, column=0, pady=5)
+        ttk.Button(input_frame, text="Update Selected", command=self.update_selected).grid(row=9, column=1, pady=5)
 
         # Results table
-        columns = ("title", "type", "date", "status", "skills", "items", "heroes", "description")
+        columns = ("title", "type", "date", "status", "skills", "items", "heroes", "description", "local_path")
         self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
         self.tree.heading("title", text="Title", command=lambda: self.sort_column("title"))
         self.tree.heading("type", text="Type", command=lambda: self.sort_column("type"))
@@ -120,14 +124,16 @@ class VideoTab:
         self.tree.heading("items", text="Items")
         self.tree.heading("heroes", text="Heroes")
         self.tree.heading("description", text="Description")
-        self.tree.column("title", width=250)
+        self.tree.heading("local_path", text="Local Path")
+        self.tree.column("title", width=200)
         self.tree.column("type", width=80)
         self.tree.column("date", width=100)
         self.tree.column("status", width=80)
         self.tree.column("skills", width=150)
         self.tree.column("items", width=150)
         self.tree.column("heroes", width=150)
-        self.tree.column("description", width=200)
+        self.tree.column("description", width=150)
+        self.tree.column("local_path", width=200)
         self.tree.grid(row=2, column=0, sticky="nsew")
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(2, weight=1)
@@ -223,7 +229,8 @@ class VideoTab:
                 video["skills"],
                 video["items"],
                 video["heroes"],
-                video["description"]
+                video["description"],
+                video["local_path"] or ""
             ))
 
     def sort_column(self, column):
@@ -240,8 +247,9 @@ class VideoTab:
         date = self.date_entry.get()
         status = self.input_status_var.get()
         description = self.description_var.get().strip()
+        local_path = self.local_path_var.get().strip()
         if not title or not video_type or not date or not status:
-            messagebox.showerror("Error", "Please fill all required fields.")
+            messagebox.showerror("Error", "Please fill all required fields (Title, Type, Date, Status).")
             return
         try:
             datetime.strptime(date, "%Y-%m-%d")
@@ -251,7 +259,7 @@ class VideoTab:
         skill_ids = [int(id) for id, _ in self.selected_skills]
         item_ids = [int(id) for id, _ in self.selected_items]
         hero_names = [self.heroes[i] for i in self.heroes_listbox.curselection()]
-        self.video_db.add_video(title, video_type, date, status, description, skill_ids, item_ids, hero_names)
+        self.video_db.add_video(title, video_type, date, status, description, skill_ids, item_ids, hero_names, local_path)
         self.update_results()
         self.clear_inputs()
 
@@ -265,7 +273,8 @@ class VideoTab:
         self.input_type_var.set(values[1])
         self.date_entry.set_date(datetime.strptime(values[2], "%Y-%m-%d"))
         self.input_status_var.set(values[3])
-        self.description_var.set(values[6])
+        self.description_var.set(values[7])
+        self.local_path_var.set(values[8])
         with self.video_db.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT skill_id FROM video_skills WHERE video_id = (SELECT id FROM videos WHERE title = ?)", (values[0],))
@@ -296,8 +305,9 @@ class VideoTab:
         date = self.date_entry.get()
         status = self.input_status_var.get()
         description = self.description_var.get().strip()
+        local_path = self.local_path_var.get().strip()
         if not title or not video_type or not date or not status:
-            messagebox.showerror("Error", "Please fill all required fields.")
+            messagebox.showerror("Error", "Please fill all required fields (Title, Type, Date, Status).")
             return
         try:
             datetime.strptime(date, "%Y-%m-%d")
@@ -307,7 +317,7 @@ class VideoTab:
         skill_ids = [int(id) for id, _ in self.selected_skills]
         item_ids = [int(id) for id, _ in self.selected_items]
         hero_names = [self.heroes[i] for i in self.heroes_listbox.curselection()]
-        self.video_db.update_video(video_id, title, video_type, date, status, description, skill_ids, item_ids, hero_names)
+        self.video_db.update_video(video_id, title, video_type, date, status, description, skill_ids, item_ids, hero_names, local_path)
         self.update_results()
         self.clear_inputs()
 
@@ -330,6 +340,7 @@ class VideoTab:
         self.date_entry.set_date(datetime.now())
         self.input_status_var.set("")
         self.description_var.set("")
+        self.local_path_var.set("")
         self.selected_skills = []
         self.selected_items = []
         self.skills_var.set("")

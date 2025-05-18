@@ -16,7 +16,7 @@ class VideoDB:
 
     def get_videos(self, video_type="", status="", skill_ids=None, item_ids=None, hero_name="", sort_by="date", sort_order="DESC"):
         query = """
-            SELECT v.id, v.title, v.type, v.date, v.status, v.description,
+            SELECT v.id, v.title, v.type, v.date, v.status, v.description, v.local_path,
                    GROUP_CONCAT(DISTINCT s.name) as skills,
                    GROUP_CONCAT(DISTINCT i.name) as items,
                    GROUP_CONCAT(DISTINCT vh.hero_name) as heroes
@@ -58,18 +58,21 @@ class VideoDB:
                     "date": row[3],
                     "status": row[4],
                     "description": row[5],
-                    "skills": row[6] or "",
-                    "items": row[7] or "",
-                    "heroes": row[8] or ""
+                    "local_path": row[6] or "",
+                    "skills": row[7] or "",
+                    "items": row[8] or "",
+                    "heroes": row[9] or ""
                 }
                 for row in cursor.fetchall()
             ]
 
-    def add_video(self, title, video_type, date, status, description, skill_ids, item_ids, hero_names):
+    def add_video(self, title, video_type, date, status, description, skill_ids, item_ids, hero_names, local_path=""):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO videos (title, type, date, status, description) VALUES (?, ?, ?, ?, ?)",
-                          (title, video_type, date, status, description))
+            cursor.execute("""
+                INSERT INTO videos (title, type, date, status, description, local_path)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (title, video_type, date, status, description, local_path or None))
             video_id = cursor.lastrowid
             for skill_id in skill_ids:
                 cursor.execute("INSERT INTO video_skills (video_id, skill_id) VALUES (?, ?)", (video_id, skill_id))
@@ -77,12 +80,16 @@ class VideoDB:
                 cursor.execute("INSERT INTO video_items (video_id, item_id) VALUES (?, ?)", (video_id, item_id))
             for hero_name in hero_names:
                 cursor.execute("INSERT INTO video_heroes (video_id, hero_name) VALUES (?, ?)", (video_id, hero_name))
+            conn.commit()
 
-    def update_video(self, video_id, title, video_type, date, status, description, skill_ids, item_ids, hero_names):
+    def update_video(self, video_id, title, video_type, date, status, description, skill_ids, item_ids, hero_names, local_path=""):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("UPDATE videos SET title = ?, type = ?, date = ?, status = ?, description = ? WHERE id = ?",
-                          (title, video_type, date, status, description, video_id))
+            cursor.execute("""
+                UPDATE videos
+                SET title = ?, type = ?, date = ?, status = ?, description = ?, local_path = ?
+                WHERE id = ?
+            """, (title, video_type, date, status, description, local_path or None, video_id))
             cursor.execute("DELETE FROM video_skills WHERE video_id = ?", (video_id,))
             cursor.execute("DELETE FROM video_items WHERE video_id = ?", (video_id,))
             cursor.execute("DELETE FROM video_heroes WHERE video_id = ?", (video_id,))
@@ -92,6 +99,7 @@ class VideoDB:
                 cursor.execute("INSERT INTO video_items (video_id, item_id) VALUES (?, ?)", (video_id, item_id))
             for hero_name in hero_names:
                 cursor.execute("INSERT INTO video_heroes (video_id, hero_name) VALUES (?, ?)", (video_id, hero_name))
+            conn.commit()
 
     def delete_video(self, video_id):
         self.db.execute("DELETE FROM videos WHERE id = ?", (video_id,))
