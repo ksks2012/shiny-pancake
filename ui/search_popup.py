@@ -58,6 +58,8 @@ class SearchPopup:
         selected_frame.grid(row=0, column=2, sticky="nsew", padx=10)
         results_frame.columnconfigure(2, weight=1)
 
+        self.selected_count_var = tk.StringVar(value="Selected: 0 items")
+        ttk.Label(selected_frame, textvariable=self.selected_count_var).grid(row=1, column=0, pady=5)
         self.selected_listbox = tk.Listbox(selected_frame, selectmode="multiple", width=30, height=15)
         self.selected_listbox.grid(row=0, column=0, sticky="nsew")
         selected_frame.rowconfigure(0, weight=1)
@@ -127,6 +129,7 @@ class SearchPopup:
                 self.selected_items.append((item_id, item_name))
                 self.selected_listbox.insert("end", item_name)
                 existing_names.add(item_name)
+        self.selected_count_var.set(f"Selected: {len(self.selected_items)} items")
 
     def remove_selected(self):
         selected_indices = self.selected_listbox.curselection()
@@ -138,10 +141,12 @@ class SearchPopup:
             self.selected_listbox.delete(index)
             # Remove the corresponding selected_items
             self.selected_items = [(id_, name) for id_, name in self.selected_items if name != item_name]
+        self.selected_count_var.set(f"Selected: {len(self.selected_items)} items")
 
     def clear_all(self):
         self.selected_listbox.delete(0, "end")
         self.selected_items = []
+        self.selected_count_var.set(f"Selected: {len(self.selected_items)} items")
 
     def confirm_selection(self):
         self.popup.destroy()
