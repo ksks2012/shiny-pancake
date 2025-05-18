@@ -267,52 +267,127 @@ def query_items(name="", rarities=None, types=None, effect_keyword="", heroes=No
     return items
 
 # Video-related database functions
-def get_videos(video_type="", status="", sort_by="date", sort_order="DESC"):
+def get_videos(video_type="", status="", skill_name="", item_name="", sort_by="date", sort_order="DESC"):
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
-    query = "SELECT id, title, type, date, status, description FROM videos WHERE 1=1"
+    query = """
+        SELECT v.id, v.title, v.type, v.date, v.status, v.description,
+               GROUP_CONCAT(DISTINCT s.name) as skills,
+               GROUP_CONCAT(DISTINCT i.name) as items
+        FROM videos v
+        LEFT JOIN video_skills vs ON v.id = vs.video_id
+        LEFT JOIN skills s ON vs.skill_id = s.id
+        LEFT JOIN video_items vi ON v.id = vi.video_id
+        LEFT JOIN items i ON vi.item_id = i.id
+        WHERE 1=1
+    """
     params = []
     
     if video_type:
-        query += " AND type = ?"
+        query += " AND v.type = ?"
         params.append(video_type)
     if status:
-        query += " AND status = ?"
+        query += " AND v.status = ?"
         params.append(status)
+    if skill_name:
+        query += " AND v.id IN (SELECT video_id FROM video_skills WHERE skill_id IN (SELECT id FROM skills WHERE name LIKE ?))"
+        params.append(f"%{skill_name}%")
+    if item_name:
+        query += " AND v.id IN (SELECT video_id FROM video_items WHERE item_id IN (SELECT id FROM items WHERE name LIKE ?))"
+        params.append(f"%{item_name}%")
     
-    query += f" ORDER BY {sort_by} {sort_order}"
+    query += " GROUP BY v.id"
+    query += f" ORDER BY v.{sort_by} {sort_order}"
+    
     cursor.execute(query, params)
-    videos = [{"id": row[0], "title": row[1], "type": row[2], "date": row[3], "status": row[4], "description": row[5]} for row in cursor.fetchall()]
+    videos = [
+        {
+            "id": row[0],
+            "title": row[1],
+            "type": row[2],
+            "date": row[3],
+            "status": row[4],
+            "description": row[5],
+            "skills": row[6] or "",
+            "items": row[7] or ""
+        }
+        for row in cursor.fetchall()
+    ]
     conn.close()
     return videos
 
-def add_video(title, video_type, date, status, description):
+def add_video(title, video_type, date, status, description, skill_ids, item_ids):
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
+    
+    # Insert video
     cursor.execute("INSERT INTO videos (title, type, date, status, description) VALUES (?, ?, ?, ?, ?)",
                   (title, video_type, date, status, description))
+    video_id = cursor.lastrowid
+    
+    # Insert skill tags
+    for skill_id in skill_ids:
+        cursor.execute("INSERT INTO video_skills (video_id, skill_id) VALUES (?, ?)", (video_id, skill_id))
+    
+    # Insert item tags
+    for item_id in item_ids:
+        cursor.execute("INSERT INTO video_items (video_id, item_id) VALUES (?, ?)", (video_id, item_id))
+    
     conn.commit()
     conn.close()
 
-def update_video(video_id, title, video_type, date, status, description):
+def update_video(video_id, title, video_type, date, status, description, skill_ids, item_ids):
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
+    
+    # Update video
     cursor.execute("UPDATE videos SET title = ?, type = ?, date = ?, status = ?, description = ? WHERE id = ?",
                   (title, video_type, date, status, description, video_id))
+    
+    # Delete existing tags
+    cursor.execute("DELETE FROM video_skills WHERE video_id = ?", (video_id,))
+    cursor.execute("DELETE FROM video_items WHERE video_id = ?", (video_id,))
+    
+    # Insert new skill tags
+    for skill_id in skill_ids:
+        cursor.execute("INSERT INTO video_skills (video_id, skill_id) VALUES (?, ?)", (video_id, skill_id))
+    
+    # Insert new item tags
+    for item_id in item_ids:
+        cursor.execute("INSERT INTO video_items (video_id, item_id) VALUES (?, ?)", (video_id, item_id))
+    
     conn.commit()
     conn.close()
 
 def delete_video(video_id):
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+    cursor.execute("DELETE FROM videos WHERE id = ?", (video_id,))  # Cascades to video_skills and video_items
     conn.commit()
     conn.close()
+
+def get_all_skills():
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM skills ORDER BY name")
+    skills = [(row[0], row[1]) for row in cursor.fetchall()]
+    conn.close()
+    return skills
+
+def get_all_items():
+    conn = sqlite3.connect("bazaar.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM items ORDER BY name")
+    items = [(row[0], row[1]) for row in cursor.fetchall()]
+    conn.close()
+    return items
 
 # Video management tab
 class VideoTab:
     def __init__(self, parent):
         self.parent = parent
+        self.skills = get_all_skills()
+        self.items = get_all_items()
         self.create_widgets()
 
     def create_widgets(self):
@@ -333,7 +408,15 @@ class VideoTab:
         self.status_var = tk.StringVar()
         ttk.Combobox(filter_frame, textvariable=self.status_var, values=["", "Draft", "Published"], state="readonly").grid(row=1, column=1, padx=5, sticky="ew")
 
-        ttk.Button(filter_frame, text="Search", command=self.update_results).grid(row=2, column=0, columnspan=2, pady=5)
+        ttk.Label(filter_frame, text="Skill Name:").grid(row=2, column=0, padx=5, sticky="w")
+        self.skill_filter_var = tk.StringVar()
+        ttk.Entry(filter_frame, textvariable=self.skill_filter_var).grid(row=2, column=1, padx=5, sticky="ew")
+
+        ttk.Label(filter_frame, text="Item Name:").grid(row=3, column=0, padx=5, sticky="w")
+        self.item_filter_var = tk.StringVar()
+        ttk.Entry(filter_frame, textvariable=self.item_filter_var).grid(row=3, column=1, padx=5, sticky="ew")
+
+        ttk.Button(filter_frame, text="Search", command=self.update_results).grid(row=4, column=0, columnspan=2, pady=5)
 
         # Input frame
         input_frame = ttk.LabelFrame(main_frame, text="Add/Edit Video", padding="5")
@@ -359,22 +442,46 @@ class VideoTab:
         self.description_var = tk.StringVar()
         ttk.Entry(input_frame, textvariable=self.description_var).grid(row=4, column=1, padx=5, sticky="ew")
 
-        ttk.Button(input_frame, text="Add Video", command=self.add_video).grid(row=5, column=0, pady=5)
-        ttk.Button(input_frame, text="Update Selected", command=self.update_selected).grid(row=5, column=1, pady=5)
+        # Skills selection
+        ttk.Label(input_frame, text="Skills:").grid(row=5, column=0, padx=5, sticky="nw")
+        self.skills_listbox = tk.Listbox(input_frame, selectmode="multiple", height=5, exportselection=0)
+        self.skills_listbox.grid(row=5, column=1, padx=5, sticky="ew")
+        for _, skill_name in self.skills:
+            self.skills_listbox.insert("end", skill_name)
+        scrollbar = ttk.Scrollbar(input_frame, orient="vertical", command=self.skills_listbox.yview)
+        scrollbar.grid(row=5, column=2, sticky="ns")
+        self.skills_listbox.configure(yscrollcommand=scrollbar.set)
+
+        # Items selection
+        ttk.Label(input_frame, text="Items:").grid(row=6, column=0, padx=5, sticky="nw")
+        self.items_listbox = tk.Listbox(input_frame, selectmode="multiple", height=5, exportselection=0)
+        self.items_listbox.grid(row=6, column=1, padx=5, sticky="ew")
+        for _, item_name in self.items:
+            self.items_listbox.insert("end", item_name)
+        scrollbar = ttk.Scrollbar(input_frame, orient="vertical", command=self.items_listbox.yview)
+        scrollbar.grid(row=6, column=2, sticky="ns")
+        self.items_listbox.configure(yscrollcommand=scrollbar.set)
+
+        ttk.Button(input_frame, text="Add Video", command=self.add_video).grid(row=7, column=0, pady=5)
+        ttk.Button(input_frame, text="Update Selected", command=self.update_selected).grid(row=7, column=1, pady=5)
 
         # Results table
-        columns = ("title", "type", "date", "status", "description")
+        columns = ("title", "type", "date", "status", "skills", "items", "description")
         self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
         self.tree.heading("title", text="Title", command=lambda: self.sort_column("title"))
         self.tree.heading("type", text="Type", command=lambda: self.sort_column("type"))
         self.tree.heading("date", text="Date", command=lambda: self.sort_column("date"))
         self.tree.heading("status", text="Status", command=lambda: self.sort_column("status"))
+        self.tree.heading("skills", text="Skills")
+        self.tree.heading("items", text="Items")
         self.tree.heading("description", text="Description")
-        self.tree.column("title", width=300)
+        self.tree.column("title", width=250)
         self.tree.column("type", width=80)
         self.tree.column("date", width=100)
         self.tree.column("status", width=80)
-        self.tree.column("description", width=300)
+        self.tree.column("skills", width=150)
+        self.tree.column("items", width=150)
+        self.tree.column("description", width=200)
         self.tree.grid(row=2, column=0, sticky="nsew")
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(2, weight=1)
@@ -397,7 +504,10 @@ class VideoTab:
         
         video_type = self.type_var.get()
         status = self.status_var.get()
-        videos = get_videos(video_type, status, self.sort_by, self.sort_order)
+        skill_name = self.skill_filter_var.get().strip()
+        item_name = self.item_filter_var.get().strip()
+        
+        videos = get_videos(video_type, status, skill_name, item_name, self.sort_by, self.sort_order)
         
         for video in videos:
             self.tree.insert("", "end", values=(
@@ -405,6 +515,8 @@ class VideoTab:
                 video["type"],
                 video["date"],
                 video["status"],
+                video["skills"],
+                video["items"],
                 video["description"]
             ))
 
@@ -433,7 +545,11 @@ class VideoTab:
             messagebox.showerror("Error", "Date must be in YYYY-MM-DD format.")
             return
         
-        add_video(title, video_type, date, status, description)
+        # Get selected skills and items
+        selected_skills = [self.skills[i][0] for i in self.skills_listbox.curselection()]
+        selected_items = [self.items[i][0] for i in self.items_listbox.curselection()]
+        
+        add_video(title, video_type, date, status, description, selected_skills, selected_items)
         self.update_results()
         self.clear_inputs()
 
@@ -448,7 +564,30 @@ class VideoTab:
         self.input_type_var.set(values[1])
         self.date_var.set(values[2])
         self.input_status_var.set(values[3])
-        self.description_var.set(values[4])
+        self.description_var.set(values[6])
+        
+        # Load skill and item tags
+        self.skills_listbox.selection_clear(0, "end")
+        self.items_listbox.selection_clear(0, "end")
+        
+        conn = sqlite3.connect("bazaar.db")
+        cursor = conn.cursor()
+        
+        # Get selected skills
+        cursor.execute("SELECT skill_id FROM video_skills WHERE video_id = (SELECT id FROM videos WHERE title = ?)", (values[0],))
+        selected_skill_ids = [row[0] for row in cursor.fetchall()]
+        for i, (skill_id, _) in enumerate(self.skills):
+            if skill_id in selected_skill_ids:
+                self.skills_listbox.selection_set(i)
+        
+        # Get selected items
+        cursor.execute("SELECT item_id FROM video_items WHERE video_id = (SELECT id FROM videos WHERE title = ?)", (values[0],))
+        selected_item_ids = [row[0] for row in cursor.fetchall()]
+        for i, (item_id, _) in enumerate(self.items):
+            if item_id in selected_item_ids:
+                self.items_listbox.selection_set(i)
+        
+        conn.close()
 
     def update_selected(self):
         selected = self.tree.selection()
@@ -476,7 +615,11 @@ class VideoTab:
             messagebox.showerror("Error", "Date must be in YYYY-MM-DD format.")
             return
         
-        update_video(video_id, title, video_type, date, status, description)
+        # Get selected skills and items
+        selected_skills = [self.skills[i][0] for i in self.skills_listbox.curselection()]
+        selected_items = [self.items[i][0] for i in self.items_listbox.curselection()]
+        
+        update_video(video_id, title, video_type, date, status, description, selected_skills, selected_items)
         self.update_results()
         self.clear_inputs()
 
@@ -500,6 +643,9 @@ class VideoTab:
         self.date_var.set(datetime.now().strftime("%Y-%m-%d"))
         self.input_status_var.set("")
         self.description_var.set("")
+        self.skills_listbox.selection_clear(0, "end")
+        self.items_listbox.selection_clear(0, "end")
+
 
 # Reusable query tab class
 class QueryTab:
@@ -515,7 +661,6 @@ class QueryTab:
         self.sort_by = "name"
         self.sort_order = "ASC"
         
-        # Create UI elements
         self.create_widgets()
 
     def create_widgets(self):
@@ -684,7 +829,7 @@ class QueryTab:
                 writer.writerow(row)
         messagebox.showinfo("Export", f"Results exported to {filename}")
 
-# Main application class
+# Main application class (unchanged)
 class SkillQueryApp:
     def __init__(self, root):
         self.root = root
@@ -713,7 +858,7 @@ class SkillQueryApp:
         self.videos_tab = VideoTab(videos_frame)
 
 def create_video_table(cursor):
-    cursor.execute("""
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -723,10 +868,29 @@ def create_video_table(cursor):
             description TEXT
         )
     """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS video_skills (
+                video_id INTEGER,
+                skill_id INTEGER,
+                PRIMARY KEY (video_id, skill_id),
+                FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
+                FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS video_items (
+                video_id INTEGER,
+                item_id INTEGER,
+                PRIMARY KEY (video_id, item_id),
+                FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
+                FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+            )
+        """)
+
 
 # Main execution
 if __name__ == "__main__":
-    # Create indexes and video table
+    # Create indexes and tables
     conn = sqlite3.connect("bazaar.db")
     cursor = conn.cursor()
     # Skill indexes
@@ -744,6 +908,8 @@ if __name__ == "__main__":
 
     create_video_table(cursor)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_date ON videos(date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_skills ON video_skills(video_id, skill_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_items ON video_items(video_id, item_id)")
     conn.commit()
     conn.close()
     
