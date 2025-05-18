@@ -1,0 +1,5 @@
+beautifulsoup4==4.13.3
+pyaml==25.1.0
+PyYAML==6.0.2
+setuptools==77.0.3
+tkcalendar==1.6.1
