@@ -1,0 +1,48 @@
+name: Build EXE for Windows
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger only when pushing tags that start with 'v', such as v1.0, v2.1, etc.
+  workflow_dispatch:  # Keep the option for manual triggering
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller --onefile --noconsole --hidden-import=beautifulsoup4 --hidden-import=PyYAML --hidden-import=tkcalendar --name=BazaarDataManager --add-data "ui;ui" --add-data "db;db" --add-data "utils;utils" ui/skill_query_desktop.py
+
+      - name: Upload EXE as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: traits-tracker-filter
+          path: dist/BazaarDataManager.exe
+
+      - name: Create Release and Upload EXE
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}  # Use the pushed tag name
+          name: "Release ${{ github.ref_name }}"
+          files: dist/BazaarDataManager.exe  # Upload the correct EXE file
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
