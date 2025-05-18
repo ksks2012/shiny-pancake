@@ -30,7 +30,7 @@ jobs:
 
       - name: Build EXE with PyInstaller
         run: |
-          pyinstaller --onefile --noconsole --hidden-import=beautifulsoup4 --hidden-import=PyYAML --hidden-import=tkcalendar --name=BazaarDataManager --add-data "ui;ui" --add-data "db;db" --add-data "utils;utils" ui/skill_query_desktop.py
+          pyinstaller --onefile --noconsole --hidden-import=beautifulsoup4 --hidden-import=PyYAML --hidden-import=tkcalendar --name=BazaarDataManager --add-data "ui;ui" --add-data "ui/tabs;ui/tabs" --add-data "db;db" --add-data "utils;utils" ui/skill_query_desktop.py
 
       - name: Upload EXE as artifact
         uses: actions/upload-artifact@v4
