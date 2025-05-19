@@ -1,110 +1,118 @@
-from bs4 import BeautifulSoup
 from db.db_routine import DBRoutine
+from db.models import Skill, SkillRarity, SkillType, SkillEffect, SkillHero, ItemHero
 from utils.config import RARITY_ORDER
+from sqlalchemy import select, func, union, and_, case
+from sqlalchemy.sql import text
 
 class SkillDB:
     def __init__(self, db_routine: DBRoutine):
         self.db = db_routine
 
     def get_rarities(self):
-        results = self.db.execute("SELECT DISTINCT rarity FROM skill_rarities WHERE rarity IS NOT NULL")
-        rarities = [row[0] for row in results]
-        sorted_rarities = sorted([r for r in rarities if r in RARITY_ORDER], key=lambda x: RARITY_ORDER.index(x))
-        return [""] + sorted_rarities
+        with self.db.get_connection() as session:
+            results = session.query(SkillRarity.rarity).distinct().all()
+            rarities = [row[0] for row in results if row[0] is not None]
+            sorted_rarities = sorted([r for r in rarities if r in RARITY_ORDER], key=lambda x: RARITY_ORDER.index(x))
+            return [""] + sorted_rarities
 
     def get_heroes(self):
-        results = self.db.execute("""
-            SELECT DISTINCT hero FROM (
-                SELECT hero FROM skill_heroes WHERE hero IS NOT NULL
-                UNION
-                SELECT hero FROM item_heroes WHERE hero IS NOT NULL
-            ) ORDER BY hero
-        """)
-        return [""] + [row[0] for row in results]
+        with self.db.get_connection() as session:
+            skill_heroes = select(SkillHero.hero).where(SkillHero.hero != None)
+            item_heroes = select(ItemHero.hero).where(ItemHero.hero != None)
+            query = union(skill_heroes, item_heroes).order_by('hero')
+            result = session.execute(query)
+            return [""] + [row[0] for row in result.fetchall()]
 
     def get_types(self):
-        results = self.db.execute("SELECT DISTINCT type FROM skill_types WHERE type IS NOT NULL ORDER BY type")
-        return [row[0] for row in results]
+        with self.db.get_connection() as session:
+            results = session.query(SkillType.type).distinct().order_by(SkillType.type).all()
+            return [row[0] for row in results]
 
     def get_all_skills(self):
-        results = self.db.execute("SELECT id, name FROM skills ORDER BY name")
-        return [(row[0], row[1]) for row in results]
+        with self.db.get_connection() as session:
+            results = session.query(Skill.id, Skill.name).order_by(Skill.name).all()
+            return [(row.id, row.name) for row in results]
 
     def query_skills(self, name="", rarities=None, types=None, effect_keyword="", heroes=None, sort_by="name", sort_order="ASC"):
-        query = """
-            SELECT DISTINCT s.id, s.name,
-                   GROUP_CONCAT(DISTINCT sr.rarity) as rarities,
-                   GROUP_CONCAT(DISTINCT se.effect) as effects,
-                   GROUP_CONCAT(DISTINCT st.type) as types,
-                   GROUP_CONCAT(DISTINCT sh.hero) as heroes
-            FROM skills s
-            LEFT JOIN skill_rarities sr ON s.id = sr.skill_id
-            LEFT JOIN skill_effects se ON s.id = se.skill_id
-            LEFT JOIN skill_types st ON s.id = st.skill_id
-            LEFT JOIN skill_heroes sh ON s.id = sh.skill_id
-            WHERE 1=1
-        """
-        params = []
-        if name:
-            query += " AND s.name LIKE ?"
-            params.append(f"%{name}%")
-        if rarities:
-            query += " AND s.id IN (SELECT skill_id FROM skill_rarities WHERE rarity IN ({}))".format(",".join("?" * len(rarities)))
-            params.extend(rarities)
-        if types:
-            query += " AND s.id IN (SELECT skill_id FROM skill_types WHERE type IN ({}))".format(",".join("?" * len(types)))
-            params.extend(types)
-        if effect_keyword:
-            query += " AND se.effect LIKE ?"
-            params.append(f"%{effect_keyword}%")
-        if heroes:
-            query += " AND s.id IN (SELECT skill_id FROM skill_heroes WHERE hero IN ({}))".format(",".join("?" * len(heroes)))
-            params.extend(heroes)
-        query += " GROUP BY s.id"
-        if sort_by == "name":
-            query += f" ORDER BY s.name {sort_order}"
-        elif sort_by == "rarity":
-            query += f"""
-                ORDER BY (
-                    MIN(
-                        CASE sr.rarity
-                            WHEN 'Bronze' THEN 1
-                            WHEN 'Silver' THEN 2
-                            WHEN 'Gold' THEN 3
-                            WHEN 'Diamond' THEN 4
-                            WHEN 'Legendary' THEN 5
-                            ELSE 6
-                        END
-                    )
-                ) {sort_order}
-            """
-        elif sort_by == "types":
-            query += f" ORDER BY GROUP_CONCAT(DISTINCT st.type) {sort_order}"
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            results = cursor.fetchall()
-        
-        skills = []
-        for row in results:
-            effects = row["effects"] or ""
-            if effects:
-                soup = BeautifulSoup(effects, "html.parser")
-                effects = soup.get_text(strip=True)
-            effects_list = list(set(effects.split(","))) if effects else []
-            types_list = list(set(row["types"].split(","))) if row["types"] else []
-            rarities_list = sorted(
-                [r for r in row["rarities"].split(",") if r] if row["rarities"] else [],
-                key=lambda x: RARITY_ORDER.index(x) if x in RARITY_ORDER else len(RARITY_ORDER)
+        with self.db.get_connection() as session:
+            # Base query with joins
+            query = (
+                session.query(
+                    Skill.id,
+                    Skill.name,
+                    func.group_concat(SkillRarity.rarity.distinct()).label('rarities'),
+                    func.group_concat(SkillEffect.effect.distinct()).label('effects'),
+                    func.group_concat(SkillType.type.distinct()).label('types'),
+                    func.group_concat(SkillHero.hero.distinct()).label('heroes')
+                )
+                .outerjoin(SkillRarity, Skill.id == SkillRarity.skill_id)
+                .outerjoin(SkillEffect, Skill.id == SkillEffect.skill_id)
+                .outerjoin(SkillType, Skill.id == SkillType.skill_id)
+                .outerjoin(SkillHero, Skill.id == SkillHero.skill_id)
             )
-            heroes_list = list(set(row["heroes"].split(","))) if row["heroes"] else []
-            skills.append({
-                "id": row["id"],
-                "name": row["name"],
-                "rarities": ", ".join(rarities_list),
-                "effects": ", ".join(effects_list),
-                "types": types_list,
-                "heroes": heroes_list
-            })
-        return skills
+
+            # Apply filters
+            filters = []
+            if name:
+                filters.append(Skill.name.ilike(f"%{name}%"))
+            if rarities:
+                query = query.filter(Skill.id.in_(
+                    select(SkillRarity.skill_id).where(SkillRarity.rarity.in_(rarities))
+                ))
+            if types:
+                query = query.filter(Skill.id.in_(
+                    select(SkillType.skill_id).where(SkillType.type.in_(types))
+                ))
+            if effect_keyword:
+                filters.append(SkillEffect.effect.ilike(f"%{effect_keyword}%"))
+            if heroes:
+                query = query.filter(Skill.id.in_(
+                    select(SkillHero.skill_id).where(SkillHero.hero.in_(heroes))
+                ))
+
+            # Apply filters and group
+            query = query.filter(and_(*filters)).group_by(Skill.id)
+
+            # Apply sorting
+            if sort_by == "name":
+                query = query.order_by(text(f"skills.name {sort_order}"))
+            elif sort_by == "rarity":
+                rarity_case = case(
+                    {rarity: idx + 1 for idx, rarity in enumerate(['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'])},
+                    value=SkillRarity.rarity,
+                    else_=6
+                )
+                query = query.order_by(func.min(rarity_case).asc() if sort_order == "ASC" else func.min(rarity_case).desc())
+            elif sort_by == "types":
+                query = query.order_by(text(f"GROUP_CONCAT(DISTINCT skill_types.type) {sort_order}"))
+
+            # Execute and format results
+            results = query.all()
+            skills = []
+            for row in results:
+                # Process effects (assuming plain text, no HTML)
+                effects = row.effects or ""
+                effects_list = sorted(list(set(effects.split(","))) if effects else [], key=str.lower)
+                
+                # Process types
+                types_list = sorted(list(set(row.types.split(","))) if row.types else [], key=str.lower)
+                
+                # Process rarities
+                rarities_list = sorted(
+                    [r for r in (row.rarities.split(",") if row.rarities else []) if r],
+                    key=lambda x: RARITY_ORDER.index(x) if x in RARITY_ORDER else len(RARITY_ORDER)
+                )
+                
+                # Process heroes
+                heroes_list = sorted(list(set(row.heroes.split(","))) if row.heroes else [], key=str.lower)
+                
+                skills.append({
+                    "id": row.id,
+                    "name": row.name,
+                    "rarities": ", ".join(rarities_list),
+                    "effects": ", ".join(effects_list),
+                    "types": types_list,
+                    "heroes": heroes_list
+                })
+            
+            return skills

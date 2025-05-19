@@ -1,105 +1,142 @@
 from db.db_routine import DBRoutine
+from db.models import Video, VideoSkill, VideoItem, VideoHero, Skill, Item, SkillHero, ItemHero
+from sqlalchemy import select, func, union, and_
+from sqlalchemy.sql import text
 
 class VideoDB:
     def __init__(self, db_routine: DBRoutine):
         self.db = db_routine
 
     def get_all_heroes(self):
-        results = self.db.execute("""
-            SELECT DISTINCT hero FROM (
-                SELECT hero FROM skill_heroes WHERE hero IS NOT NULL
-                UNION
-                SELECT hero FROM item_heroes WHERE hero IS NOT NULL
-            ) ORDER BY hero
-        """)
-        return [row[0] for row in results]
+        with self.db.get_connection() as session:
+            # Union skill_heroes and item_heroes, select distinct heroes
+            skill_heroes = select(SkillHero.hero).where(SkillHero.hero != None)
+            item_heroes = select(ItemHero.hero).where(ItemHero.hero != None)
+            query = union(skill_heroes, item_heroes).order_by('hero')
+            result = session.execute(query)
+            return [row[0] for row in result.fetchall()]
 
     def get_videos(self, video_type="", status="", skill_ids=None, item_ids=None, hero_name="", sort_by="date", sort_order="DESC"):
-        query = """
-            SELECT v.id, v.title, v.type, v.date, v.status, v.description, v.local_path,
-                   GROUP_CONCAT(DISTINCT s.name) as skills,
-                   GROUP_CONCAT(DISTINCT i.name) as items,
-                   GROUP_CONCAT(DISTINCT vh.hero_name) as heroes
-            FROM videos v
-            LEFT JOIN video_skills vs ON v.id = vs.video_id
-            LEFT JOIN skills s ON vs.skill_id = s.id
-            LEFT JOIN video_items vi ON v.id = vi.video_id
-            LEFT JOIN items i ON vi.item_id = i.id
-            LEFT JOIN video_heroes vh ON v.id = vh.video_id
-            WHERE 1=1
-        """
-        params = []
-        if video_type:
-            query += " AND v.type = ?"
-            params.append(video_type)
-        if status:
-            query += " AND v.status = ?"
-            params.append(status)
-        if skill_ids:
-            query += " AND v.id IN (SELECT video_id FROM video_skills WHERE skill_id IN ({}))".format(",".join("?" * len(skill_ids)))
-            params.extend(skill_ids)
-        if item_ids:
-            query += " AND v.id IN (SELECT video_id FROM video_items WHERE item_id IN ({}))".format(",".join("?" * len(item_ids)))
-            params.extend(item_ids)
-        if hero_name and hero_name != "":
-            query += " AND v.id IN (SELECT video_id FROM video_heroes WHERE hero_name = ?)"
-            params.append(hero_name)
-        query += " GROUP BY v.id"
-        query += f" ORDER BY v.{sort_by} {sort_order}"
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
+        with self.db.get_connection() as session:
+            # Base query with joins
+            query = (
+                session.query(
+                    Video.id,
+                    Video.title,
+                    Video.type,
+                    Video.date,
+                    Video.status,
+                    Video.description,
+                    Video.local_path,
+                    func.group_concat(Skill.name.distinct()).label('skills'),
+                    func.group_concat(Item.name.distinct()).label('items'),
+                    func.group_concat(VideoHero.hero_name.distinct()).label('heroes')
+                )
+                .outerjoin(VideoSkill, Video.id == VideoSkill.video_id)
+                .outerjoin(Skill, VideoSkill.skill_id == Skill.id)
+                .outerjoin(VideoItem, Video.id == VideoItem.video_id)
+                .outerjoin(Item, VideoItem.item_id == Item.id)
+                .outerjoin(VideoHero, Video.id == VideoHero.video_id)
+            )
+
+            # Apply filters
+            filters = []
+            if video_type:
+                filters.append(Video.type == video_type)
+            if status:
+                filters.append(Video.status == status)
+            if skill_ids:
+                query = query.filter(Video.id.in_(
+                    select(VideoSkill.video_id).where(VideoSkill.skill_id.in_(skill_ids))
+                ))
+            if item_ids:
+                query = query.filter(Video.id.in_(
+                    select(VideoItem.video_id).where(VideoItem.item_id.in_(item_ids))
+                ))
+            if hero_name and hero_name != "":
+                query = query.filter(Video.id.in_(
+                    select(VideoHero.video_id).where(VideoHero.hero_name == hero_name)
+                ))
+
+            # Apply filters, group, and sort
+            query = (
+                query
+                .filter(and_(*filters))
+                .group_by(Video.id)
+                .order_by(text(f"videos.{sort_by} {sort_order}"))
+            )
+
+            # Execute and format results
+            results = query.all()
             return [
                 {
-                    "id": row[0],
-                    "title": row[1],
-                    "type": row[2],
-                    "date": row[3],
-                    "status": row[4],
-                    "description": row[5],
-                    "local_path": row[6] or "",
-                    "skills": row[7] or "",
-                    "items": row[8] or "",
-                    "heroes": row[9] or ""
+                    "id": row.id,
+                    "title": row.title,
+                    "type": row.type,
+                    "date": row.date,
+                    "status": row.status,
+                    "description": row.description,
+                    "local_path": row.local_path or "",
+                    "skills": row.skills or "",
+                    "items": row.items or "",
+                    "heroes": row.heroes or ""
                 }
-                for row in cursor.fetchall()
+                for row in results
             ]
 
     def add_video(self, title, video_type, date, status, description, skill_ids, item_ids, hero_names, local_path=""):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO videos (title, type, date, status, description, local_path)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (title, video_type, date, status, description, local_path or None))
-            video_id = cursor.lastrowid
+        with self.db.get_connection() as session:
+            # Create new video
+            video = Video(
+                title=title,
+                type=video_type,
+                date=date,
+                status=status,
+                description=description,
+                local_path=local_path or None
+            )
+            session.add(video)
+            session.flush()  # Get video.id
+
+            # Add junction table entries
             for skill_id in skill_ids:
-                cursor.execute("INSERT INTO video_skills (video_id, skill_id) VALUES (?, ?)", (video_id, skill_id))
+                session.add(VideoSkill(video_id=video.id, skill_id=skill_id))
             for item_id in item_ids:
-                cursor.execute("INSERT INTO video_items (video_id, item_id) VALUES (?, ?)", (video_id, item_id))
+                session.add(VideoItem(video_id=video.id, item_id=item_id))
             for hero_name in hero_names:
-                cursor.execute("INSERT INTO video_heroes (video_id, hero_name) VALUES (?, ?)", (video_id, hero_name))
-            conn.commit()
+                session.add(VideoHero(video_id=video.id, hero_name=hero_name))
 
     def update_video(self, video_id, title, video_type, date, status, description, skill_ids, item_ids, hero_names, local_path=""):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE videos
-                SET title = ?, type = ?, date = ?, status = ?, description = ?, local_path = ?
-                WHERE id = ?
-            """, (title, video_type, date, status, description, local_path or None, video_id))
-            cursor.execute("DELETE FROM video_skills WHERE video_id = ?", (video_id,))
-            cursor.execute("DELETE FROM video_items WHERE video_id = ?", (video_id,))
-            cursor.execute("DELETE FROM video_heroes WHERE video_id = ?", (video_id,))
+        with self.db.get_connection() as session:
+            # Fetch video
+            video = session.get(Video, video_id)
+            if not video:
+                raise ValueError(f"Video with id {video_id} not found")
+
+            # Update video attributes
+            video.title = title
+            video.type = video_type
+            video.date = date
+            video.status = status
+            video.description = description
+            video.local_path = local_path or None
+
+            # Delete existing junction table entries
+            session.query(VideoSkill).filter(VideoSkill.video_id == video_id).delete()
+            session.query(VideoItem).filter(VideoItem.video_id == video_id).delete()
+            session.query(VideoHero).filter(VideoHero.video_id == video_id).delete()
+
+            # Add new junction table entries
             for skill_id in skill_ids:
-                cursor.execute("INSERT INTO video_skills (video_id, skill_id) VALUES (?, ?)", (video_id, skill_id))
+                session.add(VideoSkill(video_id=video_id, skill_id=skill_id))
             for item_id in item_ids:
-                cursor.execute("INSERT INTO video_items (video_id, item_id) VALUES (?, ?)", (video_id, item_id))
+                session.add(VideoItem(video_id=video_id, item_id=item_id))
             for hero_name in hero_names:
-                cursor.execute("INSERT INTO video_heroes (video_id, hero_name) VALUES (?, ?)", (video_id, hero_name))
-            conn.commit()
+                session.add(VideoHero(video_id=video_id, hero_name=hero_name))
 
     def delete_video(self, video_id):
-        self.db.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+        with self.db.get_connection() as session:
+            video = session.get(Video, video_id)
+            if video:
+                session.delete(video)
+                # Cascading deletes handled by ON DELETE CASCADE

@@ -12,6 +12,7 @@ setup(name="shiny-pancake",
             "beautifulsoup4>=4.13.3,<4.14.0",
             "PyYaml >= 6.0, < 7.0",
             "tkcalendar >= 1.6.1, < 2.0.0",
+            "sqlalchemy >= 2.0.41, < 3.0.0",
 		],
 		entry_points={
 		},
