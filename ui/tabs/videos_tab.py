@@ -329,7 +329,7 @@ class VideoTab:
         if messagebox.askyesno("Confirm", "Are you sure you want to delete the selected video?"):
             video_id = self.tree.item(selected[0])["values"][0]
             videos = self.video_db.get_videos()
-            video_id = next(v["id"] for v in videos if v["title"] == video_id)
+            video_id = next(v["id"] for v in videos if v["title"] == str(video_id))
             self.video_db.delete_video(video_id)
             self.update_results()
             self.clear_inputs()
