@@ -50,7 +50,7 @@ class VideoTab:
         ttk.Button(filter_frame, text="Advanced Search", command=self.open_item_search).grid(row=3, column=2, padx=5)
 
         ttk.Label(filter_frame, text="Heroes:").grid(row=4, column=0, padx=5, sticky="nw")
-        self.heroes_filter_listbox = tk.Listbox(filter_frame, selectmode="single", height=5, exportselection=0)
+        self.heroes_filter_listbox = tk.Listbox(filter_frame, selectmode="multiple", height=5, exportselection=0)
         self.heroes_filter_listbox.grid(row=4, column=1, padx=5, sticky="ew")
         for hero in self.heroes:
             self.heroes_filter_listbox.insert("end", hero)
@@ -216,7 +216,7 @@ class VideoTab:
             status=self.status_var.get(),
             skill_ids=self.skill_filter_ids if self.skill_filter_ids else None,
             item_ids=self.item_filter_ids if self.item_filter_ids else None,
-            hero_name=selected_heroes[0] if len(selected_heroes) != 0 else None,
+            hero_name=selected_heroes,
             sort_by=self.sort_by,
             sort_order=self.sort_order
         )
