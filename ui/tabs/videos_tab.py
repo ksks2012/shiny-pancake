@@ -35,7 +35,7 @@ class VideoTab:
 
         ttk.Label(filter_frame, text="Status:").grid(row=1, column=0, padx=5, sticky="w")
         self.status_var = tk.StringVar()
-        ttk.Combobox(filter_frame, textvariable=self.status_var, values=["", "Draft", "Published"], state="readonly").grid(row=1, column=1, padx=5, sticky="ew")
+        ttk.Combobox(filter_frame, textvariable=self.status_var, values=["", "Draft", "Uploaded", "Published"], state="readonly").grid(row=1, column=1, padx=5, sticky="ew")
 
         ttk.Label(filter_frame, text="Skill:").grid(row=2, column=0, padx=5, sticky="w")
         self.skill_filter_var = tk.StringVar()
