@@ -3,6 +3,8 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 from tkcalendar import DateEntry
 from ui.search_popup import SearchPopup
+from db.models import Video, VideoSkill, VideoItem, VideoHero
+from sqlalchemy import select
 
 class VideoTab:
     def __init__(self, parent, video_db, skill_db, item_db):
@@ -216,7 +218,7 @@ class VideoTab:
             status=self.status_var.get(),
             skill_ids=self.skill_filter_ids if self.skill_filter_ids else None,
             item_ids=self.item_filter_ids if self.item_filter_ids else None,
-            hero_name=selected_heroes,
+            hero_name=selected_heroes[0] if len(selected_heroes) != 0 else None,
             sort_by=self.sort_by,
             sort_order=self.sort_order
         )
@@ -269,24 +271,57 @@ class VideoTab:
             return
         item = self.tree.item(selected[0])
         values = item["values"]
+        title = values[0]
+        
+        # Populate input fields
         self.title_var.set(values[0])
         self.input_type_var.set(values[1])
         self.date_entry.set_date(datetime.strptime(values[2], "%Y-%m-%d"))
         self.input_status_var.set(values[3])
         self.description_var.set(values[7])
         self.local_path_var.set(values[8])
-        with self.video_db.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT skill_id FROM video_skills WHERE video_id = (SELECT id FROM videos WHERE title = ?)", (values[0],))
-            selected_skill_ids = [row[0] for row in cursor.fetchall()]
-            cursor.execute("SELECT item_id FROM video_items WHERE video_id = (SELECT id FROM videos WHERE title = ?)", (values[0],))
-            selected_item_ids = [row[0] for row in cursor.fetchall()]
-            cursor.execute("SELECT hero_name FROM video_heroes WHERE video_id = (SELECT id FROM videos WHERE title = ?)", (values[0],))
-            selected_hero_names = [row[0] for row in cursor.fetchall()]
-        self.selected_skills = [(str(id), name) for id, name in self.skill_db.get_all_skills() if id in selected_skill_ids]
-        self.selected_items = [(str(id), name) for id, name in self.item_db.get_all_items() if id in selected_item_ids]
+
+        # Use SQLAlchemy to fetch associated skills, items, and heroes
+        with self.video_db.db.get_connection() as session:
+            # Get video_id from title
+            video = session.query(Video).filter(Video.title == title).first()
+            if not video:
+                return
+
+            # Fetch skill_ids
+            selected_skill_ids = [
+                vs.skill_id for vs in session.query(VideoSkill.skill_id)
+                .filter(VideoSkill.video_id == video.id)
+                .all()
+            ]
+
+            # Fetch item_ids
+            selected_item_ids = [
+                vi.item_id for vi in session.query(VideoItem.item_id)
+                .filter(VideoItem.video_id == video.id)
+                .all()
+            ]
+
+            # Fetch hero_names
+            selected_hero_names = [
+                vh.hero_name for vh in session.query(VideoHero.hero_name)
+                .filter(VideoHero.video_id == video.id)
+                .all()
+            ]
+
+        # Update selected skills and items
+        self.selected_skills = [
+            (str(id), name) for id, name in self.skill_db.get_all_skills()
+            if id in selected_skill_ids
+        ]
+        self.selected_items = [
+            (str(id), name) for id, name in self.item_db.get_all_items()
+            if id in selected_item_ids
+        ]
         self.skills_var.set(", ".join(name for _, name in self.selected_skills))
         self.items_var.set(", ".join(name for _, name in self.selected_items))
+
+        # Update heroes listbox selection
         self.heroes_listbox.selection_clear(0, "end")
         for i, hero in enumerate(self.heroes):
             if hero in selected_hero_names:
