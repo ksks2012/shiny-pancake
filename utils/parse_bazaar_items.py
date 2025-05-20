@@ -138,7 +138,7 @@ def update_items_from_html(html_file, delete_obsolete=False):
             rarities = [label.find("div", class_="x2lah0s").get_text(strip=True) for label in rarity_group.find_all("label")] if rarity_group else []
 
             # Extract effects
-            effects_list = item.find("ul", class_="x2fl5vp x5gn1fm x5tiur9 x1q9hu08")
+            effects_list = item.find("ul", class_="x2fl5vp x5gn1fm x5tiur9 x1ghz6dp")
             effects = [li.get_text(strip=True) for li in effects_list.find_all("li")] if effects_list else []
 
             # Extract enchantments
