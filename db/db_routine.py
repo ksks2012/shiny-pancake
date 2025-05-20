@@ -1,88 +1,52 @@
-import sqlite3
 import logging
 from contextlib import contextmanager
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from utils.config import DATABASE_PATH
+from db.models import Base
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class DBRoutine:
     def __init__(self):
-        self.db_path = DATABASE_PATH
+        self.db_path = f"sqlite:///{DATABASE_PATH}"
+        self.engine = create_engine(self.db_path, echo=False)
+        self.Session = sessionmaker(bind=self.engine)
         self.initialize_database()
 
     @contextmanager
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        """Provide a SQLAlchemy session as a context manager."""
+        session = self.Session()
         try:
-            yield conn
-        except sqlite3.Error as e:
-            logging.error(f"Database error: {e}")
+            yield session
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            session.rollback()
             raise
         finally:
-            conn.commit()
-            conn.close()
+            session.commit()
+            session.close()
 
     def execute(self, query, params=()):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            return cursor.fetchall()
+        """Execute a raw SQL query and return results as a list of dictionaries."""
+        with self.get_connection() as session:
+            try:
+                result = session.execute(query, params)
+                if result.returns_rows:
+                    return [dict(row._mapping) for row in result]
+                return []
+            except Exception as e:
+                logger.error(f"Query execution failed: {query}, error: {e}")
+                raise
 
     def initialize_database(self):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            # Create tables
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS videos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    type TEXT NOT NULL,
-                    date TEXT,
-                    status TEXT,
-                    description TEXT,
-                    local_path TEXT
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS video_skills (
-                    video_id INTEGER,
-                    skill_id INTEGER,
-                    PRIMARY KEY (video_id, skill_id),
-                    FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
-                    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS video_items (
-                    video_id INTEGER,
-                    item_id INTEGER,
-                    PRIMARY KEY (video_id, item_id),
-                    FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
-                    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS video_heroes (
-                    video_id INTEGER,
-                    hero_name TEXT,
-                    PRIMARY KEY (video_id, hero_name),
-                    FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE
-                )
-            """)
-            # Create indexes
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_name ON skills(name)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_rarity ON skill_rarities(rarity)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_type ON skill_types(type)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_hero ON skill_heroes(hero)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_name ON items(name)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_size ON items(size)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_rarity ON item_rarities(rarity)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_type ON item_types(type)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_hero ON item_heroes(hero)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_enchantment_item_id ON enchantments(item_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_date ON videos(date)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_skills ON video_skills(video_id, skill_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_items ON video_items(video_id, item_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_heroes ON video_heroes(video_id, hero_name)")
+        """Create tables and indexes defined in models."""
+        try:
+            Base.metadata.create_all(self.engine)
+            logger.info("Database initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {e}")
+            raise
