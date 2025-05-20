@@ -15,7 +15,7 @@ a = Analysis(
     hiddenimports=[
         'beautifulsoup4',
         'PyYAML',
-        'tkcalendar'
+        'tkcalendar',
         'sqlalchemy'
     ],
     hookspath=[],
