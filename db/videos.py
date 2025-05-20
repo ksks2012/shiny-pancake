@@ -18,7 +18,6 @@ class VideoDB:
 
     def get_videos(self, video_type="", status="", skill_ids=None, item_ids=None, hero_name="", sort_by="date", sort_order="DESC"):
         with self.db.get_connection() as session:
-            # Base query with joins
             query = (
                 session.query(
                     Video.id,
@@ -39,7 +38,6 @@ class VideoDB:
                 .outerjoin(VideoHero, Video.id == VideoHero.video_id)
             )
 
-            # Apply filters
             filters = []
             if video_type:
                 filters.append(Video.type == video_type)
@@ -58,7 +56,6 @@ class VideoDB:
                     select(VideoHero.video_id).where(VideoHero.hero_name == hero_name)
                 ))
 
-            # Apply filters, group, and sort
             query = (
                 query
                 .filter(and_(*filters))
@@ -66,7 +63,6 @@ class VideoDB:
                 .order_by(text(f"videos.{sort_by} {sort_order}"))
             )
 
-            # Execute and format results
             results = query.all()
             return [
                 {
@@ -86,7 +82,6 @@ class VideoDB:
 
     def add_video(self, title, video_type, date, status, description, skill_ids, item_ids, hero_names, local_path=""):
         with self.db.get_connection() as session:
-            # Create new video
             video = Video(
                 title=title,
                 type=video_type,
@@ -96,7 +91,7 @@ class VideoDB:
                 local_path=local_path or None
             )
             session.add(video)
-            session.flush()  # Get video.id
+            session.flush()
 
             # Add junction table entries
             for skill_id in skill_ids:
@@ -108,12 +103,10 @@ class VideoDB:
 
     def update_video(self, video_id, title, video_type, date, status, description, skill_ids, item_ids, hero_names, local_path=""):
         with self.db.get_connection() as session:
-            # Fetch video
             video = session.get(Video, video_id)
             if not video:
                 raise ValueError(f"Video with id {video_id} not found")
 
-            # Update video attributes
             video.title = title
             video.type = video_type
             video.date = date
@@ -121,7 +114,6 @@ class VideoDB:
             video.description = description
             video.local_path = local_path or None
 
-            # Delete existing junction table entries
             session.query(VideoSkill).filter(VideoSkill.video_id == video_id).delete()
             session.query(VideoItem).filter(VideoItem.video_id == video_id).delete()
             session.query(VideoHero).filter(VideoHero.video_id == video_id).delete()
@@ -139,4 +131,34 @@ class VideoDB:
             video = session.get(Video, video_id)
             if video:
                 session.delete(video)
-                # Cascading deletes handled by ON DELETE CASCADE
+
+    def get_video_associations(self, title):
+        """Fetch skill_ids, item_ids, and hero_names associated with a video by title."""
+        with self.db.get_connection() as session:
+            # Get video_id from title
+            video = session.query(Video).filter(Video.title == title).first()
+            if not video:
+                return [], [], []
+
+            # Fetch skill_ids
+            skill_ids = [
+                vs.skill_id for vs in session.query(VideoSkill.skill_id)
+                .filter(VideoSkill.video_id == video.id)
+                .all()
+            ]
+
+            # Fetch item_ids
+            item_ids = [
+                vi.item_id for vi in session.query(VideoItem.item_id)
+                .filter(VideoItem.video_id == video.id)
+                .all()
+            ]
+
+            # Fetch hero_names
+            hero_names = [
+                vh.hero_name for vh in session.query(VideoHero.hero_name)
+                .filter(VideoHero.video_id == video.id)
+                .all()
+            ]
+
+            return skill_ids, item_ids, hero_names

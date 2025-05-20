@@ -3,8 +3,6 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 from tkcalendar import DateEntry
 from ui.search_popup import SearchPopup
-from db.models import Video, VideoSkill, VideoItem, VideoHero
-from sqlalchemy import select
 
 class VideoTab:
     def __init__(self, parent, video_db, skill_db, item_db):
@@ -272,7 +270,7 @@ class VideoTab:
         item = self.tree.item(selected[0])
         values = item["values"]
         title = values[0]
-        
+
         # Populate input fields
         self.title_var.set(values[0])
         self.input_type_var.set(values[1])
@@ -281,33 +279,8 @@ class VideoTab:
         self.description_var.set(values[7])
         self.local_path_var.set(values[8])
 
-        # Use SQLAlchemy to fetch associated skills, items, and heroes
-        with self.video_db.db.get_connection() as session:
-            # Get video_id from title
-            video = session.query(Video).filter(Video.title == title).first()
-            if not video:
-                return
-
-            # Fetch skill_ids
-            selected_skill_ids = [
-                vs.skill_id for vs in session.query(VideoSkill.skill_id)
-                .filter(VideoSkill.video_id == video.id)
-                .all()
-            ]
-
-            # Fetch item_ids
-            selected_item_ids = [
-                vi.item_id for vi in session.query(VideoItem.item_id)
-                .filter(VideoItem.video_id == video.id)
-                .all()
-            ]
-
-            # Fetch hero_names
-            selected_hero_names = [
-                vh.hero_name for vh in session.query(VideoHero.hero_name)
-                .filter(VideoHero.video_id == video.id)
-                .all()
-            ]
+        # Fetch associations from VideoDB
+        selected_skill_ids, selected_item_ids, selected_hero_names = self.video_db.get_video_associations(title)
 
         # Update selected skills and items
         self.selected_skills = [
