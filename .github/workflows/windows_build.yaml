@@ -3,8 +3,8 @@ name: Build EXE for Windows
 on:
   push:
     tags:
-      - 'v*'  # Trigger only when pushing tags that start with 'v', such as v1.0, v2.1, etc.
-  workflow_dispatch:  # Keep the option for manual triggering
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -31,18 +31,20 @@ jobs:
       - name: Build EXE with PyInstaller
         run: |
           pyinstaller BazaarDataManager.spec
+          # Rename the EXE to include the tag name
+          rename dist/BazaarDataManager.exe dist/BazaarDataManager-${{ github.ref_name }}.exe
 
       - name: Upload EXE as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: traits-tracker-filter
-          path: dist/BazaarDataManager.exe
+          name: BazaarDataManager
+          path: dist/BazaarDataManager-${{ github.ref_name }}.exe
 
       - name: Create Release and Upload EXE
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}  # Use the pushed tag name
+          tag_name: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"
-          files: dist/BazaarDataManager.exe  # Upload the correct EXE file
+          files: dist/BazaarDataManager-${{ github.ref_name }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
