@@ -12,6 +12,7 @@ class Video(Base):
     status = Column(String)
     description = Column(Text)
     local_path = Column(Text)
+    url = Column(String, nullable=True)
 
 # Placeholder models for skills, items, and related tables (to be expanded)
 class Skill(Base):

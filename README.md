@@ -209,3 +209,15 @@ The project is organized into several directories, each serving a specific purpo
 - **Manual Testing**:
   - Test UI interactions (add/edit/delete videos).
   - Verify parsed data in the database.
+
+## DB Migration
+
+- Generate Alembic Migration
+  ```
+    alembic revision --autogenerate -m "{message}"
+  ```
+
+- Apply Migration
+  ```
+    alembic upgrade head
+  ```
