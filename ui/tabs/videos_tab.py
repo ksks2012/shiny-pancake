@@ -29,6 +29,7 @@ class VideoTab:
         # Filter frame
         filter_frame = ttk.LabelFrame(main_frame, text="Filters", padding="5")
         filter_frame.grid(row=0, column=0, sticky="ew", pady=5)
+        filter_frame.columnconfigure(1, weight=1)
 
         ttk.Label(filter_frame, text="Type:").grid(row=0, column=0, padx=5, sticky="w")
         self.type_var = tk.StringVar()
@@ -64,10 +65,11 @@ class VideoTab:
         # Input frame
         input_frame = ttk.LabelFrame(main_frame, text="Add/Edit Video", padding="5")
         input_frame.grid(row=1, column=0, sticky="ew", pady=5)
+        input_frame.columnconfigure(1, weight=1)
 
         ttk.Label(input_frame, text="Title:").grid(row=0, column=0, padx=5, sticky="w")
         self.title_var = tk.StringVar()
-        ttk.Entry(input_frame, textvariable=self.title_var).grid(row=0, column=1, padx=5, sticky="ew")
+        ttk.Entry(input_frame, textvariable=self.title_var, width=50).grid(row=0, column=1, padx=5, sticky="ew")
 
         ttk.Label(input_frame, text="Type:").grid(row=1, column=0, padx=5, sticky="w")
         self.input_type_var = tk.StringVar()
@@ -84,15 +86,16 @@ class VideoTab:
 
         ttk.Label(input_frame, text="Description:").grid(row=4, column=0, padx=5, sticky="w")
         self.description_var = tk.StringVar()
-        ttk.Entry(input_frame, textvariable=self.description_var).grid(row=4, column=1, padx=5, sticky="ew")
+        ttk.Entry(input_frame, textvariable=self.description_var, width=50).grid(row=4, column=1, padx=5, sticky="ew")
 
         ttk.Label(input_frame, text="Local Path:").grid(row=5, column=0, padx=5, sticky="w")
         self.local_path_var = tk.StringVar()
-        ttk.Entry(input_frame, textvariable=self.local_path_var).grid(row=5, column=1, padx=5, sticky="ew")
+        ttk.Entry(input_frame, textvariable=self.local_path_var, width=50).grid(row=5, column=1, padx=5, sticky="ew")
 
         ttk.Label(input_frame, text="URL:").grid(row=6, column=0, padx=5, sticky="w")
         self.url_var = tk.StringVar()
-        ttk.Entry(input_frame, textvariable=self.url_var).grid(row=6, column=1, padx=5, sticky="ew")
+        self.url_entry = ttk.Entry(input_frame, textvariable=self.url_var, width=50)
+        self.url_entry.grid(row=6, column=1, padx=5, sticky="ew")
 
         ttk.Label(input_frame, text="Skills:").grid(row=7, column=0, padx=5, sticky="w")
         self.skills_var = tk.StringVar()
@@ -119,8 +122,13 @@ class VideoTab:
         ttk.Button(input_frame, text="Update Selected", command=self.update_selected).grid(row=10, column=1, pady=5)
 
         # Results table
+        results_frame = ttk.Frame(main_frame)
+        results_frame.grid(row=2, column=0, sticky="nsew")
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)
+
         columns = ("title", "type", "date", "status", "skills", "items", "heroes", "description", "local_path", "url")
-        self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
+        self.tree = ttk.Treeview(results_frame, columns=columns, show="headings")
         self.tree.heading("title", text="Title", command=lambda: self.sort_column("title"))
         self.tree.heading("type", text="Type", command=lambda: self.sort_column("type"))
         self.tree.heading("date", text="Date", command=lambda: self.sort_column("date"))
@@ -141,13 +149,19 @@ class VideoTab:
         self.tree.column("description", width=150)
         self.tree.column("local_path", width=200)
         self.tree.column("url", width=200)
-        self.tree.grid(row=2, column=0, sticky="nsew")
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(2, weight=1)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        results_frame.columnconfigure(0, weight=1)
+        results_frame.rowconfigure(0, weight=1)
 
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.tree.yview)
-        scrollbar.grid(row=2, column=1, sticky="ns")
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        # Vertical scrollbar
+        scrollbar_y = ttk.Scrollbar(results_frame, orient="vertical", command=self.tree.yview)
+        scrollbar_y.grid(row=0, column=1, sticky="ns")
+        self.tree.configure(yscrollcommand=scrollbar_y.set)
+
+        # Horizontal scrollbar
+        scrollbar_x = ttk.Scrollbar(results_frame, orient="horizontal", command=self.tree.xview)
+        scrollbar_x.grid(row=1, column=0, sticky="ew")
+        self.tree.configure(xscrollcommand=scrollbar_x.set)
 
         ttk.Button(main_frame, text="Delete Selected", command=self.delete_selected).grid(row=3, column=0, pady=5)
 
