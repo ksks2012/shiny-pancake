@@ -6,7 +6,7 @@ class SearchPopup:
     def __init__(self, parent, title, query_func, get_rarities_func, get_types_func, get_heroes_func, entity_name, get_sizes_func=None, initial_selected_options=None):
         self.popup = tk.Toplevel(parent)
         self.popup.title(title)
-        self.popup.geometry("1000x600")
+        self.popup.geometry("1200x600")
         self.query_func = query_func
         self.entity_name = entity_name
         self.selected_items = initial_selected_options or []
