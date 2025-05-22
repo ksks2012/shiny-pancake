@@ -193,7 +193,8 @@ class VideoTab:
             self.skill_db.get_rarities,
             self.skill_db.get_types,
             self.skill_db.get_heroes,
-            "Skill"
+            "Skill",
+            initial_selected_options=self.selected_skills
         )
         self.parent.wait_window(popup.popup)
         self.selected_skills = popup.selected_items
@@ -208,7 +209,8 @@ class VideoTab:
             self.item_db.get_types,
             self.item_db.get_heroes,
             "Item",
-            self.item_db.get_sizes
+            self.item_db.get_sizes,
+            initial_selected_options=self.selected_items
         )
         self.parent.wait_window(popup.popup)
         self.selected_items = popup.selected_items

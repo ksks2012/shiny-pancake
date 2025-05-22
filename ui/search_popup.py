@@ -3,13 +3,13 @@ from tkinter import ttk
 from ui.filter_widgets import FilterWidgets
 
 class SearchPopup:
-    def __init__(self, parent, title, query_func, get_rarities_func, get_types_func, get_heroes_func, entity_name, get_sizes_func=None):
+    def __init__(self, parent, title, query_func, get_rarities_func, get_types_func, get_heroes_func, entity_name, get_sizes_func=None, initial_selected_options=None):
         self.popup = tk.Toplevel(parent)
         self.popup.title(title)
         self.popup.geometry("1000x600")
         self.query_func = query_func
         self.entity_name = entity_name
-        self.selected_items = []
+        self.selected_items = initial_selected_options or []
         self.filter_widgets = FilterWidgets(self.popup, get_rarities_func, get_types_func, get_heroes_func, get_sizes_func)
         self.get_sizes_func = get_sizes_func
         self.create_widgets()
@@ -58,11 +58,15 @@ class SearchPopup:
         selected_frame.grid(row=0, column=2, sticky="nsew", padx=10)
         results_frame.columnconfigure(2, weight=1)
 
-        self.selected_count_var = tk.StringVar(value="Selected: 0 items")
+        self.selected_count_var = tk.StringVar(value=f"Selected: {len(self.selected_items)} items")
         ttk.Label(selected_frame, textvariable=self.selected_count_var).grid(row=1, column=0, pady=5)
         self.selected_listbox = tk.Listbox(selected_frame, selectmode="multiple", width=30, height=15)
         self.selected_listbox.grid(row=0, column=0, sticky="nsew")
         selected_frame.rowconfigure(0, weight=1)
+
+        # Populate selected_listbox with initial selections
+        for _, name in self.selected_items:
+            self.selected_listbox.insert("end", name)
 
         listbox_scrollbar = ttk.Scrollbar(selected_frame, orient="vertical", command=self.selected_listbox.yview)
         listbox_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -81,23 +85,23 @@ class SearchPopup:
             self.tree.delete(item)
         filters = self.filter_widgets.get_filter_values()
         results = self.query_func(
-                name=filters["name"],
-                rarities=[filters["rarity"]] if filters["rarity"] else [],
-                types=filters["types"],
-                effect_keyword=filters["effect_keyword"],
-                heroes=[filters["hero"]] if filters["hero"] else [],
-                size=filters["size"],
-                sort_by="name",
-                sort_order="ASC"
-            ) if self.get_sizes_func != None else self.query_func(
-                name=filters["name"],
-                rarities=[filters["rarity"]] if filters["rarity"] else [],
-                types=filters["types"],
-                effect_keyword=filters["effect_keyword"],
-                heroes=[filters["hero"]] if filters["hero"] else [],
-                sort_by="name",
-                sort_order="ASC"
-            )
+            name=filters["name"],
+            rarities=[filters["rarity"]] if filters["rarity"] else [],
+            types=filters["types"],
+            effect_keyword=filters["effect_keyword"],
+            heroes=[filters["hero"]] if filters["hero"] else [],
+            size=filters["size"],
+            sort_by="name",
+            sort_order="ASC"
+        ) if self.get_sizes_func else self.query_func(
+            name=filters["name"],
+            rarities=[filters["rarity"]] if filters["rarity"] else [],
+            types=filters["types"],
+            effect_keyword=filters["effect_keyword"],
+            heroes=[filters["hero"]] if filters["hero"] else [],
+            sort_by="name",
+            sort_order="ASC"
+        )
         self.current_results = results
         for result in results:
             values = (
