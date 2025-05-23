@@ -149,7 +149,7 @@ def update_items_from_html(html_file, delete_obsolete=False):
                 enc_effect = div.find("span", class_="x2fl5vp xqxvn2f")
                 if enc_name and enc_effect:
                     enc_name_text = enc_name.get_text(strip=True)
-                    enc_effect_text = enc_effect.get_text(strip=True)
+                    enc_effect_text = enc_effect.get_text(strip=True).replace(",", " ")
                     if enc_name_text not in enchantments:
                         enchantments[enc_name_text] = enc_effect_text
                         logging.debug(f"Found enchantment for {name}: {enc_name_text} - {enc_effect_text}")
